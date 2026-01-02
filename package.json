@@ -1,0 +1,44 @@
+{
+  "name": "hogbot-ts",
+  "version": "1.0.0",
+  "description": "TypeScript casino bot with Sapphire Framework and PostgreSQL",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "migrate": "tsx scripts/migrate-json-to-postgres.ts"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "casino",
+    "typescript",
+    "sapphire"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@sapphire/decorators": "^6.2.0",
+    "@sapphire/framework": "^5.3.0",
+    "@sapphire/plugin-logger": "^4.0.3",
+    "chart.js": "^4.5.1",
+    "chartjs-node-canvas": "^5.0.0",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.1",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

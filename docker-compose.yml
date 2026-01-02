@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hogbot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hogbot
+      POSTGRES_USER: hogbot
+      POSTGRES_PASSWORD: hogbot_dev_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persist database data
+      - postgres_data:/var/lib/postgresql/data
+      # Auto-run migrations on first start
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hogbot -d hogbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: pgAdmin for database management UI
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: hogbot-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@hogbot.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgres_data:
+    name: hogbot_postgres_data
+  pgadmin_data:
+    name: hogbot_pgadmin_data
