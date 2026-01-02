@@ -31,7 +31,6 @@ npm install
 
 2. Start PostgreSQL:
 ```bash
-cd ../Hogbot
 docker-compose up -d
 ```
 
@@ -99,11 +98,6 @@ npm run dev
 ```bash
 npm run build
 npm start
-```
-
-### Migrate existing data:
-```bash
-npm run migrate
 ```
 
 ## License

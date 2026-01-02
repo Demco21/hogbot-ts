@@ -66,19 +66,7 @@ await client.query(`SELECT * FROM users WHERE id = '${userId}'`);
 
 ## Project Overview
 
-**HogBot-TS** is a **TypeScript port** of the original Python-based HogBot Discord casino bot. This project migrates the bot from Python (discord.py, APScheduler, JSON persistence) to TypeScript (discord.js, Sapphire Framework, PostgreSQL).
-
-### Relationship to Original Python Project
-
-- **Python Version**: Located at `E:\dev\repos\hogbot` (or similar)
-- **Architecture Reference**: The Python version's CLAUDE.md documents the original architecture, service patterns, and game logic
-- **Migration Strategy**: Port functionality incrementally using milestones (see `MILESTONES.md`)
-- **Key Changes**:
-  - Python → TypeScript
-  - discord.py → discord.js (Sapphire Framework)
-  - JSON persistence → PostgreSQL
-  - APScheduler → node-cron (when needed)
-  - Python cogs → Sapphire commands/listeners
+**HogBot-TS** is a Discord casino bot built with TypeScript, discord.js (Sapphire Framework), and PostgreSQL. Features include casino games (blackjack, slots, cee-lo, ride the bus), wallet management, leaderboards, and game statistics tracking.
 
 ## Running the Bot
 
@@ -127,23 +115,6 @@ NODE_ENV=development
 ```
 
 Use `.env.example` as a template.
-
-### Migration from Python Bot
-
-To migrate existing user data from the Python bot:
-
-```bash
-# Ensure the Python bot's data files are accessible
-# (e.g., data/persistence_data.json)
-
-npm run migrate
-```
-
-This will transfer:
-- User wallets and balances
-- Balance history (last 100 entries per user)
-- Game statistics
-- Progressive jackpot value
 
 ## Architecture Overview
 
@@ -268,7 +239,6 @@ export class MyCommand extends Command {
 
 ### Modern TypeScript (ES2022)
 - Use native TypeScript types: `string | null`, `Record<string, number>`, etc.
-- No need for `typing` module imports (this is TypeScript, not Python)
 - Use `interface` or `type` for complex types
 - Store type definitions in `src/lib/types.ts`
 
@@ -382,7 +352,7 @@ async updateBalance(...) {
 
 **Balance History:**
 - The `transactions` table is the single source of truth
-- Balance history for graphs is queried from `transactions` table, filtering out `bet_placed` and `round_won` (matches Python behavior)
+- Balance history for graphs is queried from `transactions` table, filtering out `bet_placed` and `round_won`
 - No separate `balance_history` table needed - eliminates data duplication
 
 ### Error Handling & Logging
@@ -398,39 +368,9 @@ async updateBalance(...) {
 - Enums: `GameSource`, `UpdateType` for transaction tracking
 
 ### State Management
-- No centralized `BotState` object (unlike Python version)
 - All state is stored in PostgreSQL
 - Services query database as needed
 - Caching should be minimal and invalidated properly
-
-## Migration Progress
-
-See `MILESTONES.md` for detailed progress tracking.
-
-**Current Status**: Foundation complete (Milestones 0-2)
-- ✅ PostgreSQL setup and schema
-- ✅ Sapphire project scaffolding
-- ✅ Core services (Wallet, Leaderboard, Stats)
-- ✅ Migration script for Python data
-
-**Next Steps**: Implement commands
-- Milestone 3: Simple commands (mywallet, beg, loan, leaderboard, stats)
-- Milestone 4: Game commands (blackjack, slots, ceelo, ridethebus)
-- Milestone 5: Advanced features (scheduled tasks, NFL, Yahoo Fantasy)
-
-### ⚠️ CRITICAL: Update Progress After Completing Milestones
-
-**ALWAYS update `MILESTONES.md` when completing a milestone:**
-- ✅ Mark completed tasks/features with checkmarks
-- 📝 Add completion dates and any relevant notes
-- 🔄 Update status sections to reflect current progress
-- 📊 This helps track where we left off and what's next
-
-**Why this matters:**
-- Prevents losing track of completed work between sessions
-- Provides clear visibility into project progress
-- Helps prioritize remaining tasks
-- Creates a historical record of development
 
 ## Important Files
 
@@ -442,7 +382,6 @@ See `MILESTONES.md` for detailed progress tracking.
 - `src/services/WalletService.ts`: Balance operations
 - `src/services/LeaderboardService.ts`: Rankings and richest member role
 - `src/services/StatsService.ts`: Game statistics tracking
-- `scripts/migrate-json-to-postgres.ts`: Python → PostgreSQL migration
 
 ## Testing During Development
 
@@ -481,29 +420,13 @@ See `MILESTONES.md` for detailed progress tracking.
 
 ### Adding a new game:
 
-**⚠️ CRITICAL: Always reference the Python implementation first!**
-
-Before implementing any game (blackjack, ceelo, slots, ride the bus), **ALWAYS review the corresponding Python service file**:
-- Blackjack: `E:\dev\repos\hogbot\services\blackjack_service.py`
-- Cee-Lo: `E:\dev\repos\hogbot\services\cee_lo_service.py`
-- Slots: `E:\dev\repos\hogbot\services\slots_service.py`
-- Ride the Bus: `E:\dev\repos\hogbot\services\ride_the_bus_service.py`
-
-**Why this matters:**
-- The Python version contains the correct game logic and rules
-- Payouts, odds, and game mechanics are already tested and balanced
-- Edge cases and special conditions are already handled
-- Don't reinvent the wheel - port the proven logic
-
-**Implementation Steps:**
-1. **FIRST:** Read and understand the Python service implementation
-2. Create GameService in `src/services/<GameName>Service.ts` (port Python logic to TypeScript)
-3. Add game to `GameSource` enum in `constants.ts`
-4. Add game-specific update types to `UpdateType` enum if needed
-5. Create command in `src/commands/<gamename>.ts`
-6. Use `CasinoChannelOnly` precondition
-7. Use `WalletService` for all balance operations
-8. **CRITICAL: Log ALL game transactions (bet_placed, bet_won, bet_lost)**
+1. Create GameService in `src/services/<GameName>Service.ts` with game logic
+2. Add game to `GameSource` enum in `constants.ts`
+3. Add game-specific update types to `UpdateType` enum if needed
+4. Create command in `src/commands/<gamename>.ts`
+5. Use `CasinoChannelOnly` precondition
+6. Use `WalletService` for all balance operations
+7. **CRITICAL: Log ALL game transactions (bet_placed, bet_won, bet_lost)**
    ```typescript
    // 1. When bet is placed (deduct from balance)
    await this.container.walletService.updateBalance(
@@ -533,7 +456,7 @@ Before implementing any game (blackjack, ceelo, slots, ride the bus), **ALWAYS r
    );
    ```
 
-9. **CRITICAL: Use `StatsService.updateGameStats()` to track EVERY game result (win or loss)**
+8. **CRITICAL: Use `StatsService.updateGameStats()` to track EVERY game result (win or loss)**
    ```typescript
    // After each game round, call updateGameStats
    await this.container.statsService.updateGameStats(
@@ -546,7 +469,7 @@ Before implementing any game (blackjack, ceelo, slots, ride the bus), **ALWAYS r
    );
    ```
 
-10. **CRITICAL: Verify Stats Accuracy After Implementation**
+9. **CRITICAL: Verify Stats Accuracy After Implementation**
     After implementing any game or feature, ALWAYS verify:
     - ✅ Check `transactions` table has all three types: `bet_placed`, `bet_won`, `bet_lost`
     - ✅ Run `/stats` command and verify the PNG graph shows accurate balance progression
