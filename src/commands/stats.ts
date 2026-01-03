@@ -71,6 +71,18 @@ export class StatsCommand extends Command {
               .setName('member')
               .setDescription('The member to view stats for (defaults to you)')
               .setRequired(false)
+          )
+          .addStringOption((option) =>
+            option
+              .setName('game')
+              .setDescription('Filter stats by specific game (defaults to all games)')
+              .setRequired(false)
+              .addChoices(
+                { name: '🎰 Slots', value: GameSource.SLOTS },
+                { name: '🚌 Ride the Bus', value: GameSource.RIDE_THE_BUS },
+                { name: '🎲 Cee-Lo', value: GameSource.CEELO },
+                { name: '🃏 Blackjack', value: GameSource.BLACKJACK }
+              )
           ),
       // Production: Always register globally for instant multi-guild support
       // Development: Register to specific guild for instant testing
@@ -90,6 +102,7 @@ export class StatsCommand extends Command {
       const userId = targetUser.id;
       const guildId = interaction.guildId!;
       const username = targetUser.username;
+      const selectedGame = interaction.options.getString('game') as GameSource | null;
 
       // Get balance history
       const balanceHistory = await this.container.walletService.getBalanceHistory(userId, guildId);
@@ -120,8 +133,8 @@ export class StatsCommand extends Command {
         embed.addFields({ name: '📊 Stat Summary', value: summaryValue, inline: false });
       }
 
-      // Add per-game stats
-      const gameFields = await this.buildGameFields(userId, guildId);
+      // Add per-game stats (filtered by selected game if specified)
+      const gameFields = await this.buildGameFields(userId, guildId, selectedGame);
       for (const field of gameFields) {
         embed.addFields(field);
       }
@@ -280,60 +293,72 @@ export class StatsCommand extends Command {
 
   /**
    * Build per-game stat fields
+   * @param selectedGame - If provided, show only detailed stats for this game. If null, show condensed stats for all games.
    */
-  private async buildGameFields(userId: string, guildId: string): Promise<Array<{ name: string; value: string; inline: boolean }>> {
+  private async buildGameFields(
+    userId: string,
+    guildId: string,
+    selectedGame: GameSource | null
+  ): Promise<Array<{ name: string; value: string; inline: boolean }>> {
     const gameStats = await this.container.statsService.getAllGameStats(userId, guildId);
     const fields: Array<{ name: string; value: string; inline: boolean }> = [];
 
     // Order: slots, ridethebus, ceelo, blackjack
     const gameOrder = [GameSource.SLOTS, GameSource.RIDE_THE_BUS, GameSource.CEELO, GameSource.BLACKJACK];
 
-    for (const gameSource of gameOrder) {
+    // Filter games if a specific game is selected
+    const gamesToShow = selectedGame ? [selectedGame] : gameOrder;
+
+    for (const gameSource of gamesToShow) {
       const stat = gameStats.find((s) => s.game_source === gameSource);
       if (!stat) continue;
 
       const displayName = this.getGameDisplayName(gameSource);
       const valueLines: string[] = [];
 
-      // Basic stats
+      // Basic stats (always shown)
       valueLines.push(`Played: **${stat.played.toLocaleString('en-US')}**`);
       valueLines.push(this.formatWinLossLine(stat.wins, stat.losses));
-      valueLines.push(`Best Win Streak: **${stat.best_win_streak.toLocaleString('en-US')}**`);
-      valueLines.push(`Worst Loss Streak: **${stat.worst_losing_streak.toLocaleString('en-US')}**`);
 
-      // Game-specific stats
-      if (gameSource === GameSource.SLOTS && stat.extra_stats) {
-        const bonusSpins = stat.extra_stats.bonus_spins || 0;
-        const jackpotHits = stat.extra_stats.jackpot_hits || 0;
-        valueLines.push(`Bonus Spins: **${bonusSpins.toLocaleString('en-US')}**`);
-        valueLines.push(`Jackpot Hits: **${jackpotHits.toLocaleString('en-US')}**`);
-      }
+      // Detailed stats (only shown when filtering by specific game)
+      if (selectedGame) {
+        valueLines.push(`Best Win Streak: **${stat.best_win_streak.toLocaleString('en-US')}**`);
+        valueLines.push(`Worst Loss Streak: **${stat.worst_losing_streak.toLocaleString('en-US')}**`);
 
-      if (gameSource === GameSource.RIDE_THE_BUS && stat.extra_stats) {
-        // Add Round 1 color stats
-        const colorStats = this.getRTBColorStats(stat.extra_stats);
-        valueLines.push(colorStats);
+        // Game-specific stats
+        if (gameSource === GameSource.SLOTS && stat.extra_stats) {
+          const bonusSpins = stat.extra_stats.bonus_spins || 0;
+          const jackpotHits = stat.extra_stats.jackpot_hits || 0;
+          valueLines.push(`Bonus Spins: **${bonusSpins.toLocaleString('en-US')}**`);
+          valueLines.push(`Jackpot Hits: **${jackpotHits.toLocaleString('en-US')}**`);
+        }
 
-        // Add per-round win/loss stats from extra_stats
-        for (const round of ['1', '2', '3', '4']) {
-          const roundWins = (stat.extra_stats[`round_${round}_wins`] as number) || 0;
-          const roundLosses = (stat.extra_stats[`round_${round}_losses`] as number) || 0;
-          if (roundWins + roundLosses > 0) {
-            valueLines.push(`↳ Round ${round}: ${this.formatWinLossLine(roundWins, roundLosses)}`);
+        if (gameSource === GameSource.RIDE_THE_BUS && stat.extra_stats) {
+          // Add Round 1 color stats
+          const colorStats = this.getRTBColorStats(stat.extra_stats);
+          valueLines.push(colorStats);
+
+          // Add per-round win/loss stats from extra_stats
+          for (const round of ['1', '2', '3', '4']) {
+            const roundWins = (stat.extra_stats[`round_${round}_wins`] as number) || 0;
+            const roundLosses = (stat.extra_stats[`round_${round}_losses`] as number) || 0;
+            if (roundWins + roundLosses > 0) {
+              valueLines.push(`↳ Round ${round}: ${this.formatWinLossLine(roundWins, roundLosses)}`);
+            }
           }
         }
-      }
 
-      if (gameSource === GameSource.BLACKJACK && stat.extra_stats) {
-        const doubleDownWins = stat.extra_stats.double_down_wins || 0;
-        const doubleDownLosses = stat.extra_stats.double_down_losses || 0;
-        const blackjackWins = stat.extra_stats.blackjack_wins || 0;
+        if (gameSource === GameSource.BLACKJACK && stat.extra_stats) {
+          const doubleDownWins = stat.extra_stats.double_down_wins || 0;
+          const doubleDownLosses = stat.extra_stats.double_down_losses || 0;
+          const blackjackWins = stat.extra_stats.blackjack_wins || 0;
 
-        if (doubleDownWins > 0 || doubleDownLosses > 0) {
-          valueLines.push(`Double Downs: ${this.formatWinLossLine(doubleDownWins, doubleDownLosses)}`);
-        }
-        if (blackjackWins > 0) {
-          valueLines.push(`Blackjacks Won: **${blackjackWins.toLocaleString('en-US')}**`);
+          if (doubleDownWins > 0 || doubleDownLosses > 0) {
+            valueLines.push(`Double Downs: ${this.formatWinLossLine(doubleDownWins, doubleDownLosses)}`);
+          }
+          if (blackjackWins > 0) {
+            valueLines.push(`Blackjacks Won: **${blackjackWins.toLocaleString('en-US')}**`);
+          }
         }
       }
 

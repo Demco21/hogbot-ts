@@ -470,7 +470,7 @@ export class RideTheBusCommand extends Command {
   // Embed builders
   private buildRound1Embed(player: string, bet: number, cards: Card[], balance: number): EmbedBuilder {
     return new EmbedBuilder()
-      .setTitle('🃏 Ride the Bus')
+      .setTitle('🚌 Ride the Bus')
       .setDescription(
         `**Player:** ${player}\n\n` +
           '**Round 1 – Red or Black?**\n' +
@@ -489,7 +489,7 @@ export class RideTheBusCommand extends Command {
   private buildRound2Embed(player: string, bet: number, cards: Card[], multiplier: number, balance: number): EmbedBuilder {
     const payout = this.rtbService.calculatePayout(bet, multiplier);
     return new EmbedBuilder()
-      .setTitle('🃏 Ride the Bus')
+      .setTitle('🚌 Ride the Bus')
       .setDescription(
         `**Player:** ${player}\n\n` +
           '✅ You **won**!\n\n' +
@@ -510,7 +510,7 @@ export class RideTheBusCommand extends Command {
   private buildRound3Embed(player: string, bet: number, cards: Card[], multiplier: number, balance: number): EmbedBuilder {
     const payout = this.rtbService.calculatePayout(bet, multiplier);
     return new EmbedBuilder()
-      .setTitle('🃏 Ride the Bus')
+      .setTitle('🚌 Ride the Bus')
       .setDescription(
         `**Player:** ${player}\n\n` +
           '✅ You **won**!\n\n' +
@@ -531,7 +531,7 @@ export class RideTheBusCommand extends Command {
   private buildRound4Embed(player: string, bet: number, cards: Card[], multiplier: number, balance: number): EmbedBuilder {
     const payout = this.rtbService.calculatePayout(bet, multiplier);
     return new EmbedBuilder()
-      .setTitle('🃏 Ride the Bus')
+      .setTitle('🚌 Ride the Bus')
       .setDescription(
         `**Player:** ${player}\n\n` +
           '✅ You **won**!\n\n' +
@@ -550,7 +550,7 @@ export class RideTheBusCommand extends Command {
 
   private buildWinEmbed(player: string, bet: number, cards: Card[], multiplier: number, payout: number, balance: number): EmbedBuilder {
     return new EmbedBuilder()
-      .setTitle('🃏 Ride the Bus')
+      .setTitle('🚌 Ride the Bus')
       .setDescription(`**Player:** ${player}\n\n` + '🎉 **Jackpot!** You guessed correctly.\n\n' + `**Final Multiplier**: 🪙x${multiplier}`)
       .setColor(0x00ff00)
       .addFields(
@@ -564,7 +564,7 @@ export class RideTheBusCommand extends Command {
   private buildLossEmbed(player: string, bet: number, cards: Card[], round: number, balance: number, customMessage?: string): EmbedBuilder {
     const message = customMessage || 'You **lost**. The house takes your bet.';
     return new EmbedBuilder()
-      .setTitle('🃏 Ride the Bus')
+      .setTitle('🚌 Ride the Bus')
       .setDescription(`**Player:** ${player}\n\n` + `**Round ${round}**\n\n` + `❌ ${message}`)
       .setColor(0xff0000)
       .addFields(
@@ -577,7 +577,7 @@ export class RideTheBusCommand extends Command {
 
   private buildCashoutEmbed(player: string, bet: number, cards: Card[], multiplier: number, payout: number, balance: number): EmbedBuilder {
     return new EmbedBuilder()
-      .setTitle('🃏 Ride the Bus')
+      .setTitle('🚌 Ride the Bus')
       .setDescription(`**Player:** ${player}\n\n` + 'You chose to **cash out**.\n\n' + `**Final Multiplier**: 🪙x${multiplier}`)
       .setColor(0x00ff00)
       .addFields(

@@ -32,9 +32,9 @@ export class GuildCreateListener extends Listener {
     try {
       const embed = new EmbedBuilder()
         .setColor(0xff6b35) // Casino orange/red color
-        .setTitle('🎰 Welcome to HogBot Casino! 🎰')
+        .setTitle('🎰 Welcome to Hogbot! 🎰')
         .setDescription(
-          `Thanks for adding HogBot to **${guild.name}**!\n\n` +
+          `Thanks for adding Hogbot to **${guild.name}**!\n\n` +
             '**🎮 Available Games:**\n' +
             '• `/blackjack` - Classic 21 card game\n' +
             '• `/slots` - Spin to win with progressive jackpot\n' +
@@ -51,7 +51,7 @@ export class GuildCreateListener extends Listener {
             '**🚀 Getting Started:**\n' +
             'Everyone starts with **🪙 10,000 coins**. Good luck and gamble responsibly! 🍀'
         )
-        .setFooter({ text: 'HogBot Casino • Type / to see all commands' })
+        .setFooter({ text: 'HogBot • Type / to see all commands' })
         .setTimestamp();
 
       // Try to send to system channel first

@@ -17,7 +17,7 @@ export class ReadyListener extends Listener {
 
       // Professional startup banner
       logger.info('═══════════════════════════════════════════════════════════');
-      logger.info('                   🎰 HOGBOT CASINO 🎰                    ');
+      logger.info('                 🐖 HOGBOT 🐖                             ');
       logger.info('═══════════════════════════════════════════════════════════');
       logger.info(`Bot User:        ${client.user?.tag}`);
       logger.info(`Bot ID:          ${client.user?.id}`);
