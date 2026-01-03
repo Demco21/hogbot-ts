@@ -2,6 +2,17 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Install build dependencies for canvas
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    giflib-dev \
+    pixman-dev
+
 # Copy package files
 COPY package*.json ./
 
@@ -19,11 +30,19 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Install runtime dependencies for canvas
+RUN apk add --no-cache \
+    cairo \
+    jpeg \
+    pango \
+    giflib \
+    pixman
+
 # Copy package files
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist

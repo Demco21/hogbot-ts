@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   hogbot:
     image: hogbot-ts # prebuilt image, needs to be built prior
