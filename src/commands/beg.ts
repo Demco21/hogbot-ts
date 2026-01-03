@@ -46,7 +46,7 @@ export class BegCommand extends Command {
       if (currentBalance > 0) {
         // Rejection message - ephemeral so only they see it
         await interaction.reply({
-          content: `🫳 ${interaction.user.username}, you're not desperate enough *yet*.\nYou still have **${formatCoins(currentBalance)}** Hog Coins.`,
+          content: `🫳 You're not desperate enough *yet*.\nYou still have **${formatCoins(currentBalance)}** Hog Coins.`,
           ephemeral: true,
         });
         return;
