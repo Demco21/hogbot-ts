@@ -14,8 +14,27 @@ export class ReadyListener extends Listener {
   public override async run() {
     try {
       const { client } = this.container;
-      logger.info(`Bot logged in as ${client.user?.tag}`);
-      logger.info(`Connected to ${client.guilds.cache.size} guild(s)`);
+
+      // Professional startup banner
+      logger.info('═══════════════════════════════════════════════════════════');
+      logger.info('                   🎰 HOGBOT CASINO 🎰                    ');
+      logger.info('═══════════════════════════════════════════════════════════');
+      logger.info(`Bot User:        ${client.user?.tag}`);
+      logger.info(`Bot ID:          ${client.user?.id}`);
+      logger.info(`Environment:     ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`Node Version:    ${process.version}`);
+      logger.info(`Guilds:          ${client.guilds.cache.size}`);
+      logger.info(`Commands:        ${client.stores.get('commands').size}`);
+      logger.info('───────────────────────────────────────────────────────────');
+
+      // List all guilds
+      if (client.guilds.cache.size > 0) {
+        logger.info('Connected Servers:');
+        for (const [guildId, guild] of client.guilds.cache) {
+          logger.info(`  • ${guild.name} (ID: ${guildId}) - ${guild.memberCount} members`);
+        }
+        logger.info('───────────────────────────────────────────────────────────');
+      }
 
       // Register all existing guilds in database
       // This handles cases where bot was already in guilds before this code was deployed
@@ -29,7 +48,10 @@ export class ReadyListener extends Listener {
         }
       }
 
-      logger.info(`Registered ${registeredCount}/${client.guilds.cache.size} guilds in database`);
+      logger.info(`Database:        ${registeredCount}/${client.guilds.cache.size} guilds registered`);
+      logger.info('═══════════════════════════════════════════════════════════');
+      logger.info('✅ HogBot is online and ready to serve!');
+      logger.info('═══════════════════════════════════════════════════════════');
     } catch (error) {
       logger.error('Error in ready listener:', error);
     }

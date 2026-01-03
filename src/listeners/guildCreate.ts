@@ -31,19 +31,28 @@ export class GuildCreateListener extends Listener {
   private async sendWelcomeMessage(guild: Guild) {
     try {
       const embed = new EmbedBuilder()
-        .setColor(0x00ff00)
-        .setTitle('🎰 HogBot Casino Joined!')
+        .setColor(0xff6b35) // Casino orange/red color
+        .setTitle('🎰 Welcome to HogBot Casino! 🎰')
         .setDescription(
-          'Thanks for inviting HogBot to your server!\n\n' +
-            '**Getting Started:**\n' +
-            '• Use `/mywallet` to check your balance\n' +
-            '• Use `/beg` if you run out of coins\n' +
-            '• Try casino games: `/blackjack`, `/slots`, `/ceelo`, `/ridethebus`\n' +
-            '• Check `/leaderboard` to see the richest members\n\n' +
-            '**Need Help?**\n' +
-            'All users start with 10,000 coins. Good luck! 🍀'
+          `Thanks for adding HogBot to **${guild.name}**!\n\n` +
+            '**🎮 Available Games:**\n' +
+            '• `/blackjack` - Classic 21 card game\n' +
+            '• `/slots` - Spin to win with progressive jackpot\n' +
+            '• `/ceelo` - Roll the dice\n' +
+            '• `/ridethebus` - Card color guessing game\n' +
+            '• `/roll` - Simple dice roll betting\n\n' +
+            '**💰 Wallet & Economy:**\n' +
+            '• `/mywallet` - Check your balance and stats\n' +
+            '• `/beg` - Get 500 coins (once per hour)\n' +
+            '• `/loan` - Borrow coins when broke (3 per hour)\n' +
+            '• `/leaderboard` - See the richest members\n' +
+            '• `/stats` - View your gambling statistics\n\n' +
+            '**⚙️ Server Setup:**\n' +
+            '• `/config` - Configure casino channel and richest role (Admin only)\n\n' +
+            '**🚀 Getting Started:**\n' +
+            'Everyone starts with **🪙 10,000 coins**. Good luck and gamble responsibly! 🍀'
         )
-        .setFooter({ text: 'HogBot Casino - Have fun and gamble responsibly!' })
+        .setFooter({ text: 'HogBot Casino • Type / to see all commands' })
         .setTimestamp();
 
       // Try to send to system channel first
