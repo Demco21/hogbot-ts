@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   hogbot:
-    build: .
+    image: hogbot-ts # prebuilt image, needs to be built prior
     container_name: hogbot
     restart: unless-stopped
     env_file:
