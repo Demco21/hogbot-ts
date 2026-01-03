@@ -43,6 +43,5 @@ export const Config = {
   },
   bot: {
     isDevelopment: env.NODE_ENV === 'development',
-    startingBalance: 10000,
   },
 } as const;

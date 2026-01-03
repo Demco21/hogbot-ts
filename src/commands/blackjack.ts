@@ -42,6 +42,10 @@ export class BlackjackCommand extends Command {
       const userId = interaction.user.id;
       const guildId = interaction.guildId!;
 
+      // Ensure guild and user exist in database with proper names
+      await this.container.walletService.ensureGuild(guildId, interaction.guild?.name);
+      await this.container.walletService.ensureUser(userId, guildId, interaction.user.username);
+
       // Check for crashed game and recover
       await this.container.gameStateService.checkAndRecoverCrashedGame(
         userId,

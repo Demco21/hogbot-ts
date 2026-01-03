@@ -60,6 +60,10 @@ export class SlotsCommand extends Command {
       const guildId = interaction.guildId!;
       const betAmount = interaction.options.getInteger('bet') ?? SlotsService.MIN_BET;
 
+      // Ensure guild and user exist in database with proper names
+      await this.container.walletService.ensureGuild(guildId, interaction.guild?.name);
+      const user = await this.container.walletService.ensureUser(userId, guildId, interaction.user.username);
+
       // Check for crashed game and recover
       await this.container.gameStateService.checkAndRecoverCrashedGame(userId, guildId, GameSource.SLOTS);
 
@@ -80,7 +84,7 @@ export class SlotsCommand extends Command {
       }
 
       // Check balance
-      const balance = await this.container.walletService.getBalance(userId, guildId);
+      const balance = user.balance;
       if (balance < betAmount) {
         await interaction.editReply({
           content: `You're too broke to spin right now, ${interaction.user}.\nYour bet is **${formatCoins(betAmount)}**, but you only have **${formatCoins(balance)}**.\nTry /beg to scrounge up some Hog Coins.`,

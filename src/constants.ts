@@ -39,6 +39,9 @@ export enum UpdateType {
  * Casino configuration constants
  */
 export const CASINO_CONFIG = {
+  // Starting balance for new users
+  STARTING_BALANCE: 10000,
+
   // Beg command
   BEG_MIN: 500,
   BEG_MAX: 1000,

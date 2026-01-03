@@ -55,6 +55,9 @@ export class LoanCommand extends Command {
       const recipient = interaction.options.getUser('user', true);
       const amount = interaction.options.getInteger('amount', true);
 
+      // Ensure guild exists in database with proper name
+      await this.container.walletService.ensureGuild(guildId, interaction.guild?.name);
+
       // Validate amount is positive
       if (amount <= 0) {
         await interaction.editReply({ content: '❌ Amount must be greater than 0' });
@@ -81,9 +84,9 @@ export class LoanCommand extends Command {
         const rateLimitCheck = await client.query(
           `SELECT COUNT(*) as loan_count
            FROM loan_rate_limits
-           WHERE user_id = $1
+           WHERE lender_id = $1
            AND guild_id = $2
-           AND loan_time > NOW() - INTERVAL '${CASINO_CONFIG.LOAN_RATE_LIMIT_WINDOW_HOURS} hours'`,
+           AND created_at > NOW() - INTERVAL '${CASINO_CONFIG.LOAN_RATE_LIMIT_WINDOW_HOURS} hours'`,
           [senderId, guildId]
         );
 
@@ -96,11 +99,13 @@ export class LoanCommand extends Command {
           return;
         }
 
-        // Get or create sender
-        let sender = await this.container.walletService.getUser(senderId, guildId);
-        if (!sender) {
-          sender = await this.container.walletService.createUser(senderId, guildId, senderUsername);
-        }
+        // Ensure both sender and recipient exist in database with proper usernames
+        const sender = await this.container.walletService.ensureUser(senderId, guildId, senderUsername);
+        const recipientUser = await this.container.walletService.ensureUser(
+          recipient.id,
+          guildId,
+          recipient.username
+        );
 
         // Check if sender has enough balance
         if (sender.balance < amount) {
@@ -111,19 +116,9 @@ export class LoanCommand extends Command {
           return;
         }
 
-        // Get or create recipient
-        let recipientUser = await this.container.walletService.getUser(recipient.id, guildId);
-        if (!recipientUser) {
-          recipientUser = await this.container.walletService.createUser(
-            recipient.id,
-            guildId,
-            recipient.username
-          );
-        }
-
         // Record loan in rate limit table first
         await client.query(
-          'INSERT INTO loan_rate_limits (user_id, guild_id, loan_time) VALUES ($1, $2, NOW())',
+          'INSERT INTO loan_rate_limits (lender_id, guild_id) VALUES ($1, $2)',
           [senderId, guildId]
         );
 

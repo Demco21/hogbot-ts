@@ -32,24 +32,11 @@ export class MyWalletCommand extends Command {
 
       const userId = interaction.user.id;
       const guildId = interaction.guildId!;
-      const username = interaction.user.username;
 
-      // Get user's balance (creates user if doesn't exist)
-      const user = await this.container.walletService.getUser(userId, guildId);
-
-      let balance: number;
-      if (!user) {
-        // Create new user with starting balance
-        const newUser = await this.container.walletService.createUser(userId, guildId, username);
-        balance = newUser.balance;
-      } else {
-        balance = user.balance;
-
-        // Update username if it changed
-        if (user.username !== username) {
-          await this.container.walletService.updateUsername(userId, guildId, username);
-        }
-      }
+      // Ensure guild and user exist in database with proper names
+      await this.container.walletService.ensureGuild(guildId, interaction.guild?.name);
+      const user = await this.container.walletService.ensureUser(userId, guildId, interaction.user.username);
+      const balance = user.balance;
 
       // Create embed response
       const embed = new EmbedBuilder()

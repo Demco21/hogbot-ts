@@ -62,6 +62,10 @@ export class RideTheBusCommand extends Command {
       const guildId = interaction.guildId!;
       const betAmount = interaction.options.getInteger('bet') ?? GAME_BET_LIMITS.RIDE_THE_BUS.MIN;
 
+      // Ensure guild and user exist in database with proper names
+      await this.container.walletService.ensureGuild(guildId, interaction.guild?.name);
+      const user = await this.container.walletService.ensureUser(userId, guildId, interaction.user.username);
+
       // Check for crashed game and recover
       await this.container.gameStateService.checkAndRecoverCrashedGame(userId, guildId, GameSource.RIDE_THE_BUS);
 
@@ -74,7 +78,7 @@ export class RideTheBusCommand extends Command {
       }
 
       // Check balance
-      const balance = await this.container.walletService.getBalance(userId, guildId);
+      const balance = user.balance;
       if (balance < betAmount) {
         await interaction.editReply({
           content: `You don't have enough **Hog Coins** to make that bet.\nYour current balance is **${formatCoins(balance)}**.`,

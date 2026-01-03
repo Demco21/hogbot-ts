@@ -32,14 +32,10 @@ export class BegCommand extends Command {
     try {
       const userId = interaction.user.id;
       const guildId = interaction.guildId!;
-      const username = interaction.user.username;
 
-      // Get or create user (fast query, no need to defer yet)
-      let user = await this.container.walletService.getUser(userId, guildId);
-      if (!user) {
-        user = await this.container.walletService.createUser(userId, guildId, username);
-      }
-
+      // Ensure guild and user exist in database with proper names (fast query, no need to defer yet)
+      await this.container.walletService.ensureGuild(guildId, interaction.guild?.name);
+      const user = await this.container.walletService.ensureUser(userId, guildId, interaction.user.username);
       const currentBalance = user.balance;
 
       // Get the minimum bet amount across all games (currently all games have MIN: 50)

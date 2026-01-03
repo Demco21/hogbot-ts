@@ -1,6 +1,6 @@
 import { pool, parseBigInt } from '../lib/database.js';
 import { User } from '../lib/types.js';
-import { GameSource, UpdateType } from '../constants.js';
+import { GameSource, UpdateType, CASINO_CONFIG } from '../constants.js';
 import { safeLogger as logger } from '../lib/safe-logger.js';
 import type { PoolClient } from 'pg';
 
@@ -60,7 +60,7 @@ export class WalletService {
       if (result.rows.length === 0) {
         // User doesn't exist in this guild, create with starting balance
         await this.createUser(userId, guildId, 'Unknown');
-        return 10000; // STARTING_BALANCE
+        return CASINO_CONFIG.STARTING_BALANCE;
       }
 
       return parseBigInt(result.rows[0].balance);
@@ -94,6 +94,33 @@ export class WalletService {
   }
 
   /**
+   * Ensure user exists in database with current username
+   * Creates user if they don't exist, updates username if it changed
+   * This should be called at the start of every command to ensure proper username tracking
+   * NOTE: This does NOT ensure guild exists - call ensureGuild() first in commands
+   *
+   * @param userId - Discord user ID
+   * @param guildId - Discord guild ID
+   * @param username - Current Discord username
+   * @returns User record (always returns, never null)
+   */
+  async ensureUser(userId: string, guildId: string, username: string): Promise<User> {
+    let user = await this.getUser(userId, guildId);
+
+    if (!user) {
+      // User doesn't exist, create them
+      // IMPORTANT: Guild must exist before this is called
+      user = await this.createUser(userId, guildId, username);
+    } else if (user.username !== username) {
+      // User exists but username changed, update it
+      await this.updateUsername(userId, guildId, username);
+      user.username = username; // Update the in-memory object
+    }
+
+    return user;
+  }
+
+  /**
    * Register a guild in guild_settings table
    * Creates guild entry if it doesn't exist (required for foreign key constraint)
    * Can be called from guildCreate listener or lazily on first user interaction
@@ -104,38 +131,59 @@ export class WalletService {
   async registerGuild(guildId: string, guildName?: string): Promise<void> {
     const client = await pool.connect();
     try {
-      await client.query(
-        `INSERT INTO guild_settings (guild_id, guild_name)
-         VALUES ($1, $2)
-         ON CONFLICT (guild_id) DO UPDATE SET guild_name = EXCLUDED.guild_name`,
-        [guildId, guildName || 'Unknown Guild']
-      );
-      logger.info(`Registered guild: ${guildId} (${guildName || 'Unknown Guild'})`);
+      if (guildName) {
+        // We have a guild name - insert or update it
+        await client.query(
+          `INSERT INTO guild_settings (guild_id, guild_name)
+           VALUES ($1, $2)
+           ON CONFLICT (guild_id) DO UPDATE SET guild_name = EXCLUDED.guild_name`,
+          [guildId, guildName]
+        );
+        logger.info(`Registered guild: ${guildId} (${guildName})`);
+      } else {
+        // No guild name provided - only ensure guild exists, DON'T overwrite existing name
+        await client.query(
+          `INSERT INTO guild_settings (guild_id, guild_name)
+           VALUES ($1, 'Unknown Guild')
+           ON CONFLICT (guild_id) DO NOTHING`,
+          [guildId]
+        );
+        logger.debug(`Ensured guild exists: ${guildId} (no name update)`);
+      }
     } finally {
       client.release();
     }
   }
 
   /**
+   * Ensure guild exists in database with current name
+   * Updates guild name to fix "Unknown Guild" entries and keep names up-to-date
+   * This should be called at the start of every command
+   *
+   * @param guildId - Discord guild ID
+   * @param guildName - Current Discord guild name (optional but recommended)
+   */
+  async ensureGuild(guildId: string, guildName?: string): Promise<void> {
+    await this.registerGuild(guildId, guildName);
+  }
+
+  /**
    * Create a new user with starting balance in a specific guild
+   * IMPORTANT: Guild must already exist in guild_settings (call ensureGuild first)
    *
    * @param userId - Discord user ID
    * @param guildId - Discord guild ID
    * @param username - Discord username
    */
   async createUser(userId: string, guildId: string, username: string): Promise<User> {
-    // Ensure guild exists first (required for foreign key constraint)
-    // This is a fallback in case guild wasn't registered via guildCreate listener
-    await this.registerGuild(guildId);
-
     const client = await pool.connect();
     try {
       const result = await client.query<UserRow>(
         `INSERT INTO users (user_id, guild_id, username, balance, high_water_balance)
-         VALUES ($1, $2, $3, 10000, 10000)
+         VALUES ($1, $2, $3, $4, $4)
          ON CONFLICT (user_id, guild_id) DO NOTHING
          RETURNING *`,
-        [userId, guildId, username]
+        [userId, guildId, username, CASINO_CONFIG.STARTING_BALANCE]
       );
 
       if (result.rows.length > 0) {
@@ -198,9 +246,9 @@ export class WalletService {
       // 1. Ensure user exists in this guild (upsert pattern - create if new)
       await client.query(
         `INSERT INTO users (user_id, guild_id, balance, username)
-         VALUES ($1, $2, 10000, 'Unknown')
+         VALUES ($1, $2, $3, 'Unknown')
          ON CONFLICT (user_id, guild_id) DO NOTHING`,
-        [userId, guildId]
+        [userId, guildId, CASINO_CONFIG.STARTING_BALANCE]
       );
 
       // 2. Update user balance and high water balance atomically
@@ -353,15 +401,15 @@ export class WalletService {
       // Ensure both users exist in this guild
       await client.query(
         `INSERT INTO users (user_id, guild_id, balance, username)
-         VALUES ($1, $2, 10000, 'Unknown')
+         VALUES ($1, $2, $3, 'Unknown')
          ON CONFLICT (user_id, guild_id) DO NOTHING`,
-        [senderId, guildId]
+        [senderId, guildId, CASINO_CONFIG.STARTING_BALANCE]
       );
       await client.query(
         `INSERT INTO users (user_id, guild_id, balance, username)
-         VALUES ($1, $2, 10000, 'Unknown')
+         VALUES ($1, $2, $3, 'Unknown')
          ON CONFLICT (user_id, guild_id) DO NOTHING`,
-        [receiverId, guildId]
+        [receiverId, guildId, CASINO_CONFIG.STARTING_BALANCE]
       );
 
       // Deduct from sender
