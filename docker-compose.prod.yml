@@ -5,6 +5,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      # Persist application logs to host (survives container rebuilds)
+      - ./data:/app/data
     logging:
       driver: "json-file"
       options:
