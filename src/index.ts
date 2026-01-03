@@ -44,8 +44,12 @@ class HogBotClient extends SapphireClient {
         instance: new SapphireWinstonLogger(),
       },
       // Tell Sapphire where to find pieces (commands, listeners, preconditions)
-      // When running with tsx, use src/ directory. When compiled, use dist/
-      baseUserDirectory: new URL('../src/', import.meta.url),
+      // When running with tsx in dev, use src/ directory
+      // When running compiled code in production, use dist/ directory (current directory)
+      baseUserDirectory: new URL(
+        process.env.NODE_ENV === 'production' ? './' : '../src/',
+        import.meta.url
+      ),
     });
   }
 
