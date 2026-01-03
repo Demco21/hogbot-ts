@@ -7,6 +7,8 @@ services:
       - .env
     volumes:
       # Persist application logs to host (survives container rebuilds)
+      # IMPORTANT: Run 'sudo chown -R 1000:1000 ./data' before starting container
+      # Container runs as UID 1000 (node user) and needs write access
       - ./data:/app/data
     logging:
       driver: "json-file"
