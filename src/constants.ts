@@ -101,3 +101,13 @@ export const GAME_CRASH_THRESHOLD_MINUTES: Record<GameSource, number> = {
 export const BLACKJACK_CONFIG = {
   DEALER_STAND_VALUE: 17,
 } as const;
+
+/**
+ * Stats command configuration
+ */
+export const STATS_CONFIG = {
+  // Balance history graph limits
+  HISTORY_DEFAULT: 100, // Default number of rounds to show
+  HISTORY_MIN: 2, // Minimum rounds allowed
+  HISTORY_MAX: 1000, // Maximum rounds allowed
+} as const;

@@ -5,7 +5,7 @@ import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import { Chart, registerables } from 'chart.js';
 import { registerFont } from 'canvas';
 import { Config } from '../config.js';
-import { GameSource } from '../constants.js';
+import { GameSource, STATS_CONFIG } from '../constants.js';
 import { formatCoins } from '../lib/utils.js';
 import { existsSync } from 'fs';
 
@@ -83,6 +83,16 @@ export class StatsCommand extends Command {
                 { name: '🎲 Cee-Lo', value: GameSource.CEELO },
                 { name: '🃏 Blackjack', value: GameSource.BLACKJACK }
               )
+          )
+          .addIntegerOption((option) =>
+            option
+              .setName('history')
+              .setDescription(
+                `Number of rounds to show (${STATS_CONFIG.HISTORY_MIN}-${STATS_CONFIG.HISTORY_MAX}, default: ${STATS_CONFIG.HISTORY_DEFAULT})`
+              )
+              .setRequired(false)
+              .setMinValue(STATS_CONFIG.HISTORY_MIN)
+              .setMaxValue(STATS_CONFIG.HISTORY_MAX)
           ),
       // Production: Always register globally for instant multi-guild support
       // Development: Register to specific guild for instant testing
@@ -103,9 +113,10 @@ export class StatsCommand extends Command {
       const guildId = interaction.guildId!;
       const username = targetUser.username;
       const selectedGame = interaction.options.getString('game') as GameSource | null;
+      const historyLimit = interaction.options.getInteger('history') ?? STATS_CONFIG.HISTORY_DEFAULT;
 
-      // Get balance history
-      const balanceHistory = await this.container.walletService.getBalanceHistory(userId, guildId);
+      // Get balance history with the specified limit
+      const balanceHistory = await this.container.walletService.getBalanceHistory(userId, guildId, historyLimit);
 
       if (!balanceHistory || balanceHistory.length === 0) {
         await interaction.editReply({
