@@ -2,9 +2,13 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { AttachmentBuilder, EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
+import { Chart, registerables } from 'chart.js';
 import { Config } from '../config.js';
 import { GameSource } from '../constants.js';
 import { formatCoins } from '../lib/utils.js';
+
+// Register Chart.js components (required for v4)
+Chart.register(...registerables);
 
 @ApplyOptions<Command.Options>({
   name: 'stats',
@@ -16,8 +20,12 @@ export class StatsCommand extends Command {
 
   public constructor(context: Command.LoaderContext, options: Command.Options) {
     super(context, options);
-    // Initialize chart renderer (600x300 px, similar to Python's figsize=(6,3))
-    this.chartRenderer = new ChartJSNodeCanvas({ width: 600, height: 300 });
+    // Initialize chart renderer with light gray background
+    this.chartRenderer = new ChartJSNodeCanvas({
+      width: 600,
+      height: 300,
+      backgroundColour: '#f0f0f0', // Light gray background for readability
+    });
   }
 
   public override registerApplicationCommands(registry: Command.Registry) {
@@ -127,6 +135,7 @@ export class StatsCommand extends Command {
             font: {
               size: 16,
             },
+            color: '#333333', // Dark gray for title
           },
           legend: {
             display: false,
@@ -137,18 +146,26 @@ export class StatsCommand extends Command {
             title: {
               display: true,
               text: 'Round',
+              color: '#333333', // Dark gray for axis title
+            },
+            ticks: {
+              color: '#333333', // Dark gray for tick labels
             },
             grid: {
-              color: 'rgba(200, 200, 200, 0.3)',
+              color: 'rgba(0, 0, 0, 0.1)', // Subtle gridlines
             },
           },
           y: {
             title: {
               display: true,
               text: 'Balance',
+              color: '#333333', // Dark gray for axis title
+            },
+            ticks: {
+              color: '#333333', // Dark gray for tick labels
             },
             grid: {
-              color: 'rgba(200, 200, 200, 0.3)',
+              color: 'rgba(0, 0, 0, 0.1)', // Subtle gridlines
             },
           },
         },
