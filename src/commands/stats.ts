@@ -26,7 +26,7 @@ export class StatsCommand extends Command {
       height: 300,
       backgroundColour: '#f0f0f0', // Light gray background for readability
       chartCallback: (ChartJS) => {
-        ChartJS.defaults.font.family = 'Arial, sans-serif';
+        ChartJS.defaults.font.family = 'Noto Sans, sans-serif';
       },
     });
   }
@@ -137,7 +137,7 @@ export class StatsCommand extends Command {
             text: `${username}'s Hog Coin Progression`,
             font: {
               size: 16,
-              family: 'Arial, sans-serif',
+              family: 'Noto Sans, sans-serif',
               weight: 'bold' as const,
             },
             color: '#333333', // Dark gray for title
@@ -154,14 +154,14 @@ export class StatsCommand extends Command {
               color: '#333333', // Dark gray for axis title
               font: {
                 size: 12,
-                family: 'Arial, sans-serif',
+                family: 'Noto Sans, sans-serif',
               },
             },
             ticks: {
               color: '#333333', // Dark gray for tick labels
               font: {
                 size: 10,
-                family: 'Arial, sans-serif',
+                family: 'Noto Sans, sans-serif',
               },
             },
             grid: {
@@ -175,14 +175,14 @@ export class StatsCommand extends Command {
               color: '#333333', // Dark gray for axis title
               font: {
                 size: 12,
-                family: 'Arial, sans-serif',
+                family: 'Noto Sans, sans-serif',
               },
             },
             ticks: {
               color: '#333333', // Dark gray for tick labels
               font: {
                 size: 10,
-                family: 'Arial, sans-serif',
+                family: 'Noto Sans, sans-serif',
               },
             },
             grid: {

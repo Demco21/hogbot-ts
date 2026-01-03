@@ -37,8 +37,9 @@ RUN apk add --no-cache \
     pango \
     giflib \
     pixman \
-    ttf-dejavu \
-    fontconfig
+    font-noto \
+    fontconfig \
+    && fc-cache -f
 
 # Copy package files
 COPY package*.json ./
