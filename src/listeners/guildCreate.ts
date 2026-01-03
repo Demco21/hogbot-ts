@@ -38,16 +38,16 @@ export class GuildCreateListener extends Listener {
             '**🎮 Available Games:**\n' +
             '• `/blackjack` - Classic 21 card game\n' +
             '• `/slots` - Spin to win with progressive jackpot\n' +
-            '• `/ridethebus` - Card color guessing game\n' +
-            '• `/roll` - Simple dice roll betting\n\n' +
+            '• `/ridethebus` - 4 round card guessing game\n' +
+            '• `/roll` - Simple dice roll\n\n' +
             '**💰 Wallet & Economy:**\n' +
-            '• `/mywallet` - Check your balance and stats\n' +
+            '• `/mywallet` - Check your balance\n' +
             '• `/beg` - Get 500-1000 coins when broke (0 balance required)\n' +
             '• `/loan` - Send coins to another user (3 per hour)\n' +
             '• `/leaderboard` - See the richest members\n' +
             '• `/stats` - View your gambling statistics\n\n' +
             '**⚙️ Server Setup:**\n' +
-            '• `/config` - Configure casino channel and richest role (Admin only)\n\n' +
+            '• `/config` - Configure casino channel, richest role, and beers channel (Admin only)\n\n' +
             '**🚀 Getting Started:**\n' +
             'Everyone starts with **🪙 10,000 coins**. Good luck and gamble responsibly! 🍀'
         )
