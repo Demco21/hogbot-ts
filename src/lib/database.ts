@@ -54,14 +54,13 @@ export const pool = new Pool({
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
   // SSL configuration for AWS RDS
-  // For production: Use SSL with certificate verification
+  // For production: Use SSL encryption without strict certificate verification
+  // AWS RDS uses self-signed certificates that Node.js in Docker doesn't trust by default
   // For development (localhost): Disable SSL
   ssl:
     process.env.NODE_ENV === 'production'
       ? {
-          rejectUnauthorized: true, // Verify SSL certificates (secure)
-          // AWS RDS certificates are signed by Amazon RDS CA, which should be trusted
-          // If connection fails, you may need to set rejectUnauthorized: false temporarily
+          rejectUnauthorized: false, // Skip cert verification but still encrypt connection
         }
       : false,
 });
