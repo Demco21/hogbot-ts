@@ -2,17 +2,17 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
-import { CASINO_CONFIG } from '../constants.js';
+import { CASINO_CONFIG, GAME_BET_LIMITS } from '../constants.js';
 import { GameSource, UpdateType } from '../constants.js';
 import { formatCoins } from '../lib/utils.js';
 
 /**
- * Beg command - Gives users 50-200 coins when they're completely broke (0 balance)
- * NO cooldown - can be used repeatedly while balance is 0
+ * Beg command - Gives users 500-1000 coins when they can't afford to play
+ * NO cooldown - can be used repeatedly while balance is below minimum bet
  */
 @ApplyOptions<Command.Options>({
   name: 'beg',
-  description: 'Beg for coins when you\'re completely broke (0 balance required)',
+  description: 'Beg for coins when you can\'t afford to play',
 })
 export class BegCommand extends Command {
   public override registerApplicationCommands(registry: Command.Registry) {
@@ -42,17 +42,25 @@ export class BegCommand extends Command {
 
       const currentBalance = user.balance;
 
-      // Only allow begging if user is completely broke (balance = 0)
-      if (currentBalance > 0) {
+      // Get the minimum bet amount across all games (currently all games have MIN: 50)
+      const minBet = Math.min(
+        GAME_BET_LIMITS.BLACKJACK.MIN,
+        GAME_BET_LIMITS.SLOTS.MIN,
+        GAME_BET_LIMITS.CEELO.MIN,
+        GAME_BET_LIMITS.RIDE_THE_BUS.MIN
+      );
+
+      // Only allow begging if user can't afford to play any game
+      if (currentBalance >= minBet) {
         // Rejection message - ephemeral so only they see it
         await interaction.reply({
-          content: `🫳 You're not desperate enough *yet*.\nYou still have **${formatCoins(currentBalance)}** Hog Coins.`,
+          content: `🫳 You're not desperate enough *yet*.\nYou still have **${formatCoins(currentBalance)}**.\n\n*You can beg when you have less than ${formatCoins(minBet)}.*`,
           ephemeral: true,
         });
         return;
       }
 
-      // User has 0 balance - defer publicly so everyone sees the successful beg
+      // User can't afford any game - defer publicly so everyone sees the successful beg
       await interaction.deferReply();
 
       // Generate random beg amount (50-200)
@@ -90,7 +98,7 @@ export class BegCommand extends Command {
         .setColor(0x00ff00)
         .setDescription(randomMessage)
         .addFields({ name: 'New Balance', value: formatCoins(newBalance) })
-        .setFooter({ text: 'You can beg again when you\'re broke (0 coins)' })
+        .setFooter({ text: `You can beg again when you have less than ${formatCoins(minBet)}` })
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed] });
