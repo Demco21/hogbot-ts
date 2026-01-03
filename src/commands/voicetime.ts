@@ -160,11 +160,36 @@ export class VoiceTimeCommand extends Command {
       return `${medal} <@${user.user_id}> — ${timeStr}`;
     });
 
+    // Discord embed description has a 4096 character limit
+    // Build description and ensure it doesn't exceed the limit
+    let description = leaderboardLines.join('\n');
+    const MAX_DESCRIPTION_LENGTH = 4096;
+
+    if (description.length > MAX_DESCRIPTION_LENGTH) {
+      // Truncate to fit within limit
+      // Find how many users we can show
+      let truncatedLines: string[] = [];
+      let currentLength = 0;
+
+      for (const line of leaderboardLines) {
+        const newLength = currentLength + line.length + 1; // +1 for newline
+        if (newLength > MAX_DESCRIPTION_LENGTH - 50) {
+          // Reserve 50 chars for truncation message
+          break;
+        }
+        truncatedLines.push(line);
+        currentLength = newLength;
+      }
+
+      const remainingUsers = leaderboardLines.length - truncatedLines.length;
+      description = truncatedLines.join('\n') + `\n\n... and ${remainingUsers} more user${remainingUsers === 1 ? '' : 's'}`;
+    }
+
     const periodLabel = period === 'week' ? 'Weekly (Last 7 Days)' : 'All-Time';
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
       .setTitle(`🎙️ Voice Time Leaderboard - ${periodLabel}`)
-      .setDescription(leaderboardLines.join('\n'))
+      .setDescription(description)
       .setFooter({ text: 'Excludes time spent in AFK channel • Includes active sessions' })
       .setTimestamp();
 

@@ -28,7 +28,7 @@ export class MyWalletCommand extends Command {
   public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
     try {
       // Defer reply immediately to prevent timeout (Discord requires response within 3s)
-      await interaction.deferReply();
+      await interaction.deferReply({ ephemeral: true });
 
       const userId = interaction.user.id;
       const guildId = interaction.guildId!;

@@ -47,7 +47,7 @@ export class LoanCommand extends Command {
   public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
     try {
       // Defer reply immediately to prevent timeout
-      await interaction.deferReply();
+      await interaction.deferReply({ ephemeral: true });
 
       const senderId = interaction.user.id;
       const guildId = interaction.guildId!;
@@ -139,6 +139,28 @@ export class LoanCommand extends Command {
 
         const senderBalance = result.senderBalance;
         const recipientBalance = result.receiverBalance;
+
+        // Notify recipient via DM
+        try {
+          const dmEmbed = new EmbedBuilder()
+            .setColor(0x00ff00)
+            .setTitle('💰 You Received a Loan!')
+            .setDescription(
+              `${interaction.user.username} sent you **${formatCoins(amount)}**`
+            )
+            .addFields({
+              name: 'Your New Balance',
+              value: formatCoins(recipientBalance),
+            })
+            .setTimestamp();
+
+          await recipient.send({ embeds: [dmEmbed] });
+        } catch (dmError) {
+          // Silently fail if DMs are closed - user will see it in their balance
+          this.container.logger.info(
+            `Could not send DM to ${recipient.username} (${recipient.id}) for loan notification`
+          );
+        }
 
         // Create success embed
         const embed = new EmbedBuilder()
