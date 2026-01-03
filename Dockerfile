@@ -30,13 +30,15 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install runtime dependencies for canvas
+# Install runtime dependencies for canvas and fonts
 RUN apk add --no-cache \
     cairo \
     jpeg \
     pango \
     giflib \
-    pixman
+    pixman \
+    ttf-dejavu \
+    fontconfig
 
 # Copy package files
 COPY package*.json ./
