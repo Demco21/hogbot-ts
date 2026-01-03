@@ -30,7 +30,7 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install runtime dependencies for canvas
+# Install runtime dependencies for canvas and fonts
 RUN apk add --no-cache \
     cairo \
     jpeg \
@@ -38,17 +38,8 @@ RUN apk add --no-cache \
     giflib \
     pixman \
     ttf-dejavu \
-    fontconfig \
-    wget
-
-# Download and install Noto Sans font explicitly for canvas
-RUN mkdir -p /usr/share/fonts/noto && \
-    wget -q -O /usr/share/fonts/noto/NotoSans-Regular.ttf \
-    https://github.com/notofonts/latin-greek-cyrillic/raw/main/fonts/NotoSans/hinted/ttf/NotoSans-Regular.ttf && \
-    wget -q -O /usr/share/fonts/noto/NotoSans-Bold.ttf \
-    https://github.com/notofonts/latin-greek-cyrillic/raw/main/fonts/NotoSans/hinted/ttf/NotoSans-Bold.ttf && \
-    fc-cache -fv && \
-    apk del wget
+    fontconfig && \
+    fc-cache -fv
 
 # Copy package files
 COPY package*.json ./

@@ -12,25 +12,31 @@ import { existsSync } from 'fs';
 // Register Chart.js components (required for v4)
 Chart.register(...registerables);
 
-// Register Noto Sans font explicitly with canvas
-// Try production path first, fallback to system paths
+// Register DejaVu Sans font explicitly with canvas
+// Try production/system paths with fallbacks for dev environments
 const fontPaths = [
-  '/usr/share/fonts/noto/NotoSans-Regular.ttf',
-  '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+  '/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf', // Alpine Linux
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', // Debian/Ubuntu
   '/System/Library/Fonts/Supplemental/Arial.ttf', // macOS fallback
   'C:\\Windows\\Fonts\\arial.ttf', // Windows fallback
 ];
 
+let fontRegistered = false;
 for (const fontPath of fontPaths) {
   if (existsSync(fontPath)) {
     try {
-      registerFont(fontPath, { family: 'Noto Sans' });
+      registerFont(fontPath, { family: 'DejaVu Sans' });
       console.log(`[Stats] Registered font: ${fontPath}`);
+      fontRegistered = true;
       break;
     } catch (error) {
       console.error(`[Stats] Failed to register font at ${fontPath}:`, error);
     }
   }
+}
+
+if (!fontRegistered) {
+  console.warn('[Stats] No font registered - text may not render correctly');
 }
 
 @ApplyOptions<Command.Options>({
@@ -49,7 +55,7 @@ export class StatsCommand extends Command {
       height: 300,
       backgroundColour: '#f0f0f0', // Light gray background for readability
       chartCallback: (ChartJS) => {
-        ChartJS.defaults.font.family = 'Noto Sans, sans-serif';
+        ChartJS.defaults.font.family = 'DejaVu Sans, sans-serif';
       },
     });
   }
@@ -160,7 +166,7 @@ export class StatsCommand extends Command {
             text: `${username}'s Hog Coin Progression`,
             font: {
               size: 16,
-              family: 'Noto Sans, sans-serif',
+              family: 'DejaVu Sans, sans-serif',
               weight: 'bold' as const,
             },
             color: '#333333', // Dark gray for title
@@ -177,14 +183,14 @@ export class StatsCommand extends Command {
               color: '#333333', // Dark gray for axis title
               font: {
                 size: 12,
-                family: 'Noto Sans, sans-serif',
+                family: 'DejaVu Sans, sans-serif',
               },
             },
             ticks: {
               color: '#333333', // Dark gray for tick labels
               font: {
                 size: 10,
-                family: 'Noto Sans, sans-serif',
+                family: 'DejaVu Sans, sans-serif',
               },
             },
             grid: {
@@ -198,14 +204,14 @@ export class StatsCommand extends Command {
               color: '#333333', // Dark gray for axis title
               font: {
                 size: 12,
-                family: 'Noto Sans, sans-serif',
+                family: 'DejaVu Sans, sans-serif',
               },
             },
             ticks: {
               color: '#333333', // Dark gray for tick labels
               font: {
                 size: 10,
-                family: 'Noto Sans, sans-serif',
+                family: 'DejaVu Sans, sans-serif',
               },
             },
             grid: {
