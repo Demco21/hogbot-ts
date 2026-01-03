@@ -3,12 +3,35 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { AttachmentBuilder, EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import { Chart, registerables } from 'chart.js';
+import { registerFont } from 'canvas';
 import { Config } from '../config.js';
 import { GameSource } from '../constants.js';
 import { formatCoins } from '../lib/utils.js';
+import { existsSync } from 'fs';
 
 // Register Chart.js components (required for v4)
 Chart.register(...registerables);
+
+// Register Noto Sans font explicitly with canvas
+// Try production path first, fallback to system paths
+const fontPaths = [
+  '/usr/share/fonts/noto/NotoSans-Regular.ttf',
+  '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+  '/System/Library/Fonts/Supplemental/Arial.ttf', // macOS fallback
+  'C:\\Windows\\Fonts\\arial.ttf', // Windows fallback
+];
+
+for (const fontPath of fontPaths) {
+  if (existsSync(fontPath)) {
+    try {
+      registerFont(fontPath, { family: 'Noto Sans' });
+      console.log(`[Stats] Registered font: ${fontPath}`);
+      break;
+    } catch (error) {
+      console.error(`[Stats] Failed to register font at ${fontPath}:`, error);
+    }
+  }
+}
 
 @ApplyOptions<Command.Options>({
   name: 'stats',
