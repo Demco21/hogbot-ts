@@ -15,8 +15,13 @@ export class MyWalletCommand extends Command {
   public override registerApplicationCommands(registry: Command.Registry) {
     registry.registerChatInputCommand(
       (builder) => builder.setName(this.name).setDescription(this.description),
-      // Register to specific guild if GUILD_ID is set (dev mode), otherwise register globally
-      Config.discord.guildId ? { guildIds: [Config.discord.guildId] } : {}
+      // Production: Always register globally for instant multi-guild support
+      // Development: Register to specific guild for instant testing
+      process.env.NODE_ENV === 'production'
+        ? {} // Global registration
+        : Config.discord.guildId
+          ? { guildIds: [Config.discord.guildId] }
+          : {}
     );
   }
 

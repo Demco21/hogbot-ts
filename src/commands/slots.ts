@@ -42,8 +42,13 @@ export class SlotsCommand extends Command {
               .setMinValue(SlotsService.MIN_BET)
               .setMaxValue(SlotsService.MAX_BET)
           ),
-      // Register to specific guild if GUILD_ID is set (dev mode), otherwise register globally
-      Config.discord.guildId ? { guildIds: [Config.discord.guildId] } : {}
+      // Production: Always register globally for instant multi-guild support
+      // Development: Register to specific guild for instant testing
+      process.env.NODE_ENV === 'production'
+        ? {} // Global registration
+        : Config.discord.guildId
+          ? { guildIds: [Config.discord.guildId] }
+          : {}
     );
   }
 

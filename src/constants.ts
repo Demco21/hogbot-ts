@@ -40,8 +40,8 @@ export enum UpdateType {
  */
 export const CASINO_CONFIG = {
   // Beg command
-  BEG_MIN: 50,
-  BEG_MAX: 200,
+  BEG_MIN: 500,
+  BEG_MAX: 1000,
 
   // Loan command
   LOAN_RATE_LIMIT: 3, // loans per hour

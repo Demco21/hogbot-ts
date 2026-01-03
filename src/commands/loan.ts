@@ -25,17 +25,22 @@ export class LoanCommand extends Command {
             option
               .setName('user')
               .setDescription('The user to send coins to')
-              .setRequired(false)
+              .setRequired(true)
           )
           .addIntegerOption((option) =>
             option
               .setName('amount')
               .setDescription('Amount of coins to send')
-              .setRequired(false)
+              .setRequired(true)
               .setMinValue(1)
           ),
-      // Register to specific guild if GUILD_ID is set (dev mode), otherwise register globally
-      Config.discord.guildId ? { guildIds: [Config.discord.guildId] } : {}
+      // Production: Always register globally for instant multi-guild support
+      // Development: Register to specific guild for instant testing
+      process.env.NODE_ENV === 'production'
+        ? {} // Global registration
+        : Config.discord.guildId
+          ? { guildIds: [Config.discord.guildId] }
+          : {}
     );
   }
 

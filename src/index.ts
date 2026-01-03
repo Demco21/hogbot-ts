@@ -1,4 +1,4 @@
-import { SapphireClient, container } from '@sapphire/framework';
+import { SapphireClient, container, ApplicationCommandRegistries, RegisterBehavior } from '@sapphire/framework';
 import { GatewayIntentBits, Partials } from 'discord.js';
 import { Config } from './config.js';
 import { SapphireWinstonLogger, winstonLogger } from './lib/logger.js';
@@ -12,6 +12,10 @@ import { BlackjackService } from './services/BlackjackService.js';
 import { GameStateService } from './services/GameStateService.js';
 import { GuildSettingsService } from './services/GuildSettingsService.js';
 import { VoiceTimeService } from './services/VoiceTimeService.js';
+
+// Configure Sapphire to not overwrite commands unless they changed
+// This prevents unnecessary command recreation and propagation delays
+ApplicationCommandRegistries.setDefaultBehaviorWhenNotIdentical(RegisterBehavior.BulkOverwrite);
 
 // Augment Sapphire's Container interface to include our services
 declare module '@sapphire/pieces' {

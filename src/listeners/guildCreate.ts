@@ -38,13 +38,12 @@ export class GuildCreateListener extends Listener {
             '**🎮 Available Games:**\n' +
             '• `/blackjack` - Classic 21 card game\n' +
             '• `/slots` - Spin to win with progressive jackpot\n' +
-            '• `/ceelo` - Roll the dice\n' +
             '• `/ridethebus` - Card color guessing game\n' +
             '• `/roll` - Simple dice roll betting\n\n' +
             '**💰 Wallet & Economy:**\n' +
             '• `/mywallet` - Check your balance and stats\n' +
-            '• `/beg` - Get 500 coins (once per hour)\n' +
-            '• `/loan` - Borrow coins when broke (3 per hour)\n' +
+            '• `/beg` - Get 500-1000 coins when broke (0 balance required)\n' +
+            '• `/loan` - Send coins to another user (3 per hour)\n' +
             '• `/leaderboard` - See the richest members\n' +
             '• `/stats` - View your gambling statistics\n\n' +
             '**⚙️ Server Setup:**\n' +
