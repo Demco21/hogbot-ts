@@ -55,22 +55,41 @@ export class GuildCreateListener extends Listener {
         .setTimestamp();
 
       // Try to send to system channel first
-      if (guild.systemChannel && guild.systemChannel.permissionsFor(guild.members.me!)?.has('SendMessages')) {
-        await guild.systemChannel.send({ embeds: [embed] });
-        logger.info(`Sent welcome message to system channel in ${guild.name}`);
-        return;
+      if (guild.systemChannel) {
+        try {
+          // Check if bot member is available and has permissions
+          const botMember = guild.members.me;
+          if (botMember) {
+            const permissions = guild.systemChannel.permissionsFor(botMember);
+            if (permissions?.has('SendMessages') && permissions?.has('EmbedLinks')) {
+              await guild.systemChannel.send({ embeds: [embed] });
+              logger.info(`Sent welcome message to system channel in ${guild.name}`);
+              return;
+            }
+          }
+        } catch (channelError) {
+          // System channel failed, try owner DM
+          logger.debug(`Could not send to system channel in ${guild.name}:`, channelError);
+        }
       }
 
       // Fallback: Try to DM the guild owner
-      const owner = await guild.fetchOwner();
-      if (owner) {
-        try {
+      try {
+        const owner = await guild.fetchOwner();
+        if (owner) {
           await owner.send({ embeds: [embed] });
           logger.info(`Sent welcome DM to owner of ${guild.name}`);
-        } catch (dmError) {
-          logger.warn(`Could not send welcome DM to owner of ${guild.name}:`, dmError);
+          return;
         }
+      } catch (dmError) {
+        logger.warn(`Could not send welcome DM to owner of ${guild.name}:`, dmError);
       }
+
+      // If both methods failed, log it
+      logger.warn(
+        `Could not send welcome message for ${guild.name}: No accessible system channel and owner DMs are closed. ` +
+          `The bot is still functional - users can start using commands immediately.`
+      );
     } catch (error) {
       logger.warn(`Could not send welcome message for ${guild.name}:`, error);
       // Non-critical error - don't throw
