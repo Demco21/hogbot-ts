@@ -45,6 +45,9 @@ COPY package*.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 
+# Create data directory for logs with proper permissions
+RUN mkdir -p /app/data && chown -R node:node /app
+
 # Run as non-root user for security
 USER node
 
