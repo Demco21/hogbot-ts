@@ -55,8 +55,6 @@ export class RideTheBusCommand extends Command {
   }
 
   public override async chatInputRun(interaction: ChatInputCommandInteraction) {
-    await interaction.deferReply();
-
     try {
       const userId = interaction.user.id;
       const guildId = interaction.guildId!;
@@ -71,8 +69,9 @@ export class RideTheBusCommand extends Command {
 
       // Check if user already has an active game
       if (await this.container.gameStateService.hasActiveGame(userId, guildId, GameSource.RIDE_THE_BUS)) {
-        await interaction.editReply({
+        await interaction.reply({
           content: '🚫 You already have an active Ride the Bus game. Finish it before starting a new one.',
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -80,11 +79,15 @@ export class RideTheBusCommand extends Command {
       // Check balance
       const balance = user.balance;
       if (balance < betAmount) {
-        await interaction.editReply({
+        await interaction.reply({
           content: `You don't have enough **Hog Coins** to make that bet.\nYour current balance is **${formatCoins(balance)}**.`,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
+
+      // Defer reply after validation passes
+      await interaction.deferReply();
 
       // Deduct bet
       await this.container.walletService.updateBalance(userId, guildId, -betAmount, GameSource.RIDE_THE_BUS, UpdateType.BET_PLACED, {

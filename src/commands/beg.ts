@@ -92,10 +92,7 @@ export class BegCommand extends Command {
       // Create success embed
       const embed = new EmbedBuilder()
         .setColor(0x00ff00)
-        .setDescription(randomMessage)
-        .addFields({ name: 'New Balance', value: formatCoins(newBalance) })
-        .setFooter({ text: `You can beg again when you have less than ${formatCoins(minBet)}` })
-        .setTimestamp();
+        .setDescription(randomMessage);
 
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {

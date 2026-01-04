@@ -53,8 +53,6 @@ export class SlotsCommand extends Command {
   }
 
   public override async chatInputRun(interaction: ChatInputCommandInteraction) {
-    await interaction.deferReply();
-
     try {
       const userId = interaction.user.id;
       const guildId = interaction.guildId!;
@@ -69,16 +67,18 @@ export class SlotsCommand extends Command {
 
       // Validate bet
       if (betAmount < SlotsService.MIN_BET || betAmount > SlotsService.MAX_BET) {
-        await interaction.editReply({
+        await interaction.reply({
           content: `Your bet must be between **${formatCoins(SlotsService.MIN_BET)}** and **${formatCoins(SlotsService.MAX_BET)}**.`,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
       // Check if user already has an active game
       if (await this.container.gameStateService.hasActiveGame(userId, guildId, GameSource.SLOTS)) {
-        await interaction.editReply({
+        await interaction.reply({
           content: '🚫 You already have an active slots game. Finish it before starting a new one.',
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -86,11 +86,15 @@ export class SlotsCommand extends Command {
       // Check balance
       const balance = user.balance;
       if (balance < betAmount) {
-        await interaction.editReply({
+        await interaction.reply({
           content: `You're too broke to spin right now, ${interaction.user}.\nYour bet is **${formatCoins(betAmount)}**, but you only have **${formatCoins(balance)}**.\nTry /beg to scrounge up some Hog Coins.`,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
+
+      // Defer reply after validation passes
+      await interaction.deferReply();
 
       // Deduct bet from wallet
       await this.container.walletService.updateBalance(
