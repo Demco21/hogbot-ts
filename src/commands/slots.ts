@@ -37,7 +37,7 @@ export class SlotsCommand extends Command {
           .addIntegerOption((option) =>
             option
               .setName('bet')
-              .setDescription(`Bet amount (${SlotsService.MIN_BET}-${SlotsService.MAX_BET})`)
+              .setDescription(`Bet amount (${SlotsService.MIN_BET.toLocaleString()}-${SlotsService.MAX_BET.toLocaleString()})`)
               .setRequired(false)
               .setMinValue(SlotsService.MIN_BET)
               .setMaxValue(SlotsService.MAX_BET)

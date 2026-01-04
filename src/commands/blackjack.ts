@@ -20,7 +20,7 @@ export class BlackjackCommand extends Command {
             option
               .setName('bet')
               .setDescription(
-                `Bet amount (${GAME_BET_LIMITS.BLACKJACK.MIN}-${GAME_BET_LIMITS.BLACKJACK.MAX})`
+                `Bet amount (${GAME_BET_LIMITS.BLACKJACK.MIN.toLocaleString()}-${GAME_BET_LIMITS.BLACKJACK.MAX.toLocaleString()})`
               )
               .setRequired(false)
               .setMinValue(GAME_BET_LIMITS.BLACKJACK.MIN)

@@ -38,7 +38,7 @@ export class RideTheBusCommand extends Command {
             option
               .setName('bet')
               .setDescription(
-                `Amount to bet (${GAME_BET_LIMITS.RIDE_THE_BUS.MIN}-${GAME_BET_LIMITS.RIDE_THE_BUS.MAX})`
+                `Amount to bet (${GAME_BET_LIMITS.RIDE_THE_BUS.MIN.toLocaleString()}-${GAME_BET_LIMITS.RIDE_THE_BUS.MAX.toLocaleString()})`
               )
               .setRequired(false)
               .setMinValue(GAME_BET_LIMITS.RIDE_THE_BUS.MIN)
