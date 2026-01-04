@@ -77,13 +77,13 @@ def migrate_voice_data():
 
     print(f'👥 Found {len(voice_data)} users with voice time data\n')
 
-    # Connect to database using environment variables
+    # Hardcoded database credentials (REPLACE WITH YOUR VALUES)
     conn = psycopg2.connect(
-        host=os.getenv('DATABASE_HOST', 'localhost'),
-        port=os.getenv('DATABASE_PORT', '5432'),
-        database=os.getenv('DATABASE_NAME', 'hogbot'),
-        user=os.getenv('DATABASE_USER', 'hogbot'),
-        password=os.getenv('DATABASE_PASSWORD')
+        host='YOUR_AWS_RDS_HOST.rds.amazonaws.com',
+        port='5432',
+        database='hogbot',
+        user='hogbot',
+        password='YOUR_DATABASE_PASSWORD'
     )
 
     try:
