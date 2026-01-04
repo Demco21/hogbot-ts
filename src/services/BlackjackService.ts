@@ -495,13 +495,16 @@ class BlackjackGame {
     if (hv > 21) {
       h.finished = true;
       h.result = 'loss';
-      await this.resolveAll(interaction, '💥 **Double down**... and you busted.');
+      const bustNote = this.hasUnfinishedOtherHand()
+        ? '💥 **Double down**... and you busted. Moving to the next hand...'
+        : '💥 **Double down**... and you busted.';
+      await this.advanceOrResolve(interaction, bustNote);
       return;
     }
 
     // Otherwise, forced stand
     h.finished = true;
-    await this.resolveAll(interaction, note);
+    await this.advanceOrResolve(interaction, note);
   }
 
   private async animateDealerPlay(interaction: ButtonInteraction, note: string | null): Promise<void> {
