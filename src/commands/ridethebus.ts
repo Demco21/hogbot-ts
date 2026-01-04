@@ -440,10 +440,55 @@ export class RideTheBusCommand extends Command {
             reason: 'timeout',
           });
 
-          await originalInteraction.editReply({
-            content: '⏰ Game timed out.',
-            components: [],
-          });
+          // Update stats
+          await this.container.statsService.updateGameStats(
+            userId,
+            guildId,
+            GameSource.RIDE_THE_BUS,
+            false, // lost
+            betAmount,
+            0, // no payout
+            {}
+          );
+
+          try {
+            // Fetch current message to get embeds and components
+            const message = await response.fetch();
+            const embeds = message.embeds;
+            const components = message.components;
+
+            // Disable all buttons
+            const disabledComponents = components.map((row: any) => {
+              const actionRow = new ActionRowBuilder<ButtonBuilder>();
+              row.components.forEach((component: any) => {
+                if (component.type === ComponentType.Button) {
+                  const button = ButtonBuilder.from(component);
+                  button.setDisabled(true);
+                  actionRow.addComponents(button);
+                }
+              });
+              return actionRow;
+            });
+
+            // Update embed footer if embed exists
+            if (embeds.length > 0) {
+              const embed = EmbedBuilder.from(embeds[0]);
+              embed.setFooter({ text: '⏰ Game timed out, thanks for the donation!' });
+
+              await originalInteraction.editReply({
+                embeds: [embed],
+                components: disabledComponents,
+              });
+            } else {
+              await originalInteraction.editReply({
+                components: disabledComponents,
+              });
+            }
+          } catch (error) {
+            this.container.logger.error('Error handling RTB timeout:', error);
+            // Fallback to removing components
+            await originalInteraction.editReply({ components: [] }).catch(() => {});
+          }
         }
       } catch (error) {
         this.container.logger.error('Error handling timeout or cleanup:', error);

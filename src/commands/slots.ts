@@ -325,12 +325,71 @@ export class SlotsCommand extends Command {
         await this.container.gameStateService.finishGame(userId, guildId, GameSource.SLOTS);
 
         if (reason === 'time') {
-          await originalInteraction.editReply({
-            content: '⏰ Slot machine timed out. Use /slots again to play.',
-            components: [],
-          });
+          // Log timeout as loss
+          await this.container.walletService.updateBalance(
+            userId,
+            guildId,
+            0,
+            GameSource.SLOTS,
+            UpdateType.BET_LOST,
+            {
+              bet_amount: betAmount,
+              payout_amount: 0,
+              reason: 'timeout',
+            }
+          );
+
+          // Update stats
+          await this.container.statsService.updateGameStats(
+            userId,
+            guildId,
+            GameSource.SLOTS,
+            false, // lost
+            betAmount,
+            0, // no payout
+            {}
+          );
+
+          try {
+            // Fetch current message to get embeds and components
+            const message = await response.fetch();
+            const embeds = message.embeds;
+            const components = message.components;
+
+            // Disable all buttons
+            const disabledComponents = components.map((row: any) => {
+              const actionRow = new ActionRowBuilder<ButtonBuilder>();
+              row.components.forEach((component: any) => {
+                if (component.type === ComponentType.Button) {
+                  const button = ButtonBuilder.from(component);
+                  button.setDisabled(true);
+                  actionRow.addComponents(button);
+                }
+              });
+              return actionRow;
+            });
+
+            // Update embed footer if embed exists
+            if (embeds.length > 0) {
+              const embed = EmbedBuilder.from(embeds[0]);
+              embed.setFooter({ text: '⏰ Slot machine timed out, thanks for the donation!' });
+
+              await originalInteraction.editReply({
+                embeds: [embed],
+                components: disabledComponents,
+              });
+            } else {
+              await originalInteraction.editReply({
+                components: disabledComponents,
+              });
+            }
+          } catch (error) {
+            this.container.logger.error('Error handling slot timeout:', error);
+            // Fallback to removing components
+            await originalInteraction.editReply({ components: [] }).catch(() => {});
+          }
         } else {
-          // Remove buttons
+          // Remove buttons for other end reasons (completed, etc.)
           await originalInteraction.editReply({ components: [] });
         }
       } catch (error) {

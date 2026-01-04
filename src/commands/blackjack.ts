@@ -1,8 +1,16 @@
 import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
-import { ComponentType, MessageFlags, type ChatInputCommandInteraction, type ButtonInteraction } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ComponentType,
+  EmbedBuilder,
+  MessageFlags,
+  type ChatInputCommandInteraction,
+  type ButtonInteraction,
+} from 'discord.js';
 import { Config } from '../config.js';
-import { GameSource, GAME_BET_LIMITS, GAME_INTERACTION_TIMEOUT_MINUTES } from '../constants.js';
+import { GameSource, UpdateType, GAME_BET_LIMITS, GAME_INTERACTION_TIMEOUT_MINUTES } from '../constants.js';
 
 @ApplyOptions<Command.Options>({
   name: 'blackjack',
@@ -113,9 +121,80 @@ export class BlackjackCommand extends Command {
         }
       });
 
-      collector.on('end', (_collected, reason) => {
-        if (reason === 'time') {
-          this.container.logger.info(`Blackjack game timed out for user ${userId}`);
+      collector.on('end', async (_collected, reason) => {
+        try {
+          // Finish game in database
+          await this.container.gameStateService.finishGame(userId, guildId, GameSource.BLACKJACK);
+
+          if (reason === 'time') {
+            this.container.logger.info(`Blackjack game timed out for user ${userId}`);
+
+            // Log timeout as loss
+            await this.container.walletService.updateBalance(
+              userId,
+              guildId,
+              0,
+              GameSource.BLACKJACK,
+              UpdateType.BET_LOST,
+              {
+                bet_amount: bet,
+                payout_amount: 0,
+                reason: 'timeout',
+              }
+            );
+
+            // Update stats
+            await this.container.statsService.updateGameStats(
+              userId,
+              guildId,
+              GameSource.BLACKJACK,
+              false, // lost
+              bet,
+              0, // no payout
+              {}
+            );
+
+            try {
+              // Fetch current message to get embeds and components
+              const message = await response.fetch();
+              const embeds = message.embeds;
+              const components = message.components;
+
+              // Disable all buttons
+              const disabledComponents = components.map((row: any) => {
+                const actionRow = new ActionRowBuilder<ButtonBuilder>();
+                row.components.forEach((component: any) => {
+                  if (component.type === ComponentType.Button) {
+                    const button = ButtonBuilder.from(component);
+                    button.setDisabled(true);
+                    actionRow.addComponents(button);
+                  }
+                });
+                return actionRow;
+              });
+
+              // Update embed footer if embed exists
+              if (embeds.length > 0) {
+                const embed = EmbedBuilder.from(embeds[0]);
+                embed.setFooter({ text: '⏰ Game timed out, thanks for the donation!' });
+
+                await interaction.editReply({
+                  embeds: [embed],
+                  components: disabledComponents,
+                });
+              } else {
+                await interaction.editReply({
+                  components: disabledComponents,
+                });
+              }
+            } catch (error) {
+              this.container.logger.error('Error handling blackjack timeout:', error);
+              // Fallback to just removing components
+              await interaction.editReply({ components: [] }).catch(() => {});
+            }
+          }
+        } catch (error) {
+          this.container.logger.error('Error cleaning up blackjack game:', error);
         }
       });
     } catch (error) {
