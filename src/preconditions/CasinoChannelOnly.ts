@@ -5,30 +5,31 @@ import type { CommandInteraction, ContextMenuCommandInteraction, Message } from 
  * Precondition to restrict casino commands to the casino channel only
  * Uses per-guild casino channel configuration from database
  * If no channel is configured, allows commands in all channels
+ * Also allows threads that are children of the configured casino channel
  */
 export class CasinoChannelOnlyPrecondition extends Precondition {
   public override async messageRun(message: Message) {
     if (!message.guildId) {
       return this.error({ message: 'This command can only be used in a server.' });
     }
-    return await this.checkChannel(message.channelId, message.guildId);
+    return await this.checkChannel(message.channel, message.guildId);
   }
 
   public override async chatInputRun(interaction: CommandInteraction) {
-    if (!interaction.guildId) {
+    if (!interaction.guildId || !interaction.channel) {
       return this.error({ message: 'This command can only be used in a server.' });
     }
-    return await this.checkChannel(interaction.channelId, interaction.guildId);
+    return await this.checkChannel(interaction.channel, interaction.guildId);
   }
 
   public override async contextMenuRun(interaction: ContextMenuCommandInteraction) {
-    if (!interaction.guildId) {
+    if (!interaction.guildId || !interaction.channel) {
       return this.error({ message: 'This command can only be used in a server.' });
     }
-    return await this.checkChannel(interaction.channelId, interaction.guildId);
+    return await this.checkChannel(interaction.channel, interaction.guildId);
   }
 
-  private async checkChannel(channelId: string, guildId: string) {
+  private async checkChannel(channel: Message['channel'] | NonNullable<CommandInteraction['channel']>, guildId: string) {
     try {
       // Check if guildSettingsService is available
       if (!this.container.guildSettingsService) {
@@ -46,7 +47,12 @@ export class CasinoChannelOnlyPrecondition extends Precondition {
       }
 
       // Check if current channel matches configured casino channel
-      if (channelId === casinoChannelId) {
+      if (channel.id === casinoChannelId) {
+        return this.ok();
+      }
+
+      // Check if channel is a thread and its parent matches the casino channel
+      if (channel.isThread() && channel.parentId === casinoChannelId) {
         return this.ok();
       }
 
