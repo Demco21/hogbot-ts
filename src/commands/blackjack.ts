@@ -108,6 +108,12 @@ export class BlackjackCommand extends Command {
           } else if (customId === 'bj_split') {
             await game.split(buttonInteraction);
           }
+
+          // Check if game ended (service removes game when it's over)
+          const gameStillActive = this.container.blackjackService.getGame(userId);
+          if (!gameStillActive) {
+            collector.stop('completed');
+          }
         } catch (error) {
           this.container.logger.error('Error handling blackjack button:', error);
 
