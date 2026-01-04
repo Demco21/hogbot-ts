@@ -160,7 +160,7 @@ export class RideTheBusCommand extends Command {
 
           if (won) {
             currentMultiplier = 2;
-            // Log ROUND_WON (filtered from graph)
+            // Log ROUND_WON (filtered from graph) - no overall game stats yet
             await this.container.walletService.updateBalance(userId, guildId, 0, GameSource.RIDE_THE_BUS, UpdateType.ROUND_WON, {
               bet_amount: betAmount,
               payout_amount: 0,
@@ -169,8 +169,8 @@ export class RideTheBusCommand extends Command {
               actual: actualColor,
             });
 
-            // Update stats (including color choice)
-            await this.container.statsService.updateGameStats(userId, guildId, GameSource.RIDE_THE_BUS, true, betAmount, 0, {
+            // Track round-specific stats only (no overall win/loss count)
+            await this.container.statsService.updateExtraStatsOnly(userId, guildId, GameSource.RIDE_THE_BUS, {
               round_1_wins: 1,
               [`${actualColor}_count`]: 1,
             });
@@ -248,7 +248,8 @@ export class RideTheBusCommand extends Command {
               choice,
             });
 
-            await this.container.statsService.updateGameStats(userId, guildId, GameSource.RIDE_THE_BUS, true, betAmount, 0, {
+            // Track round-specific stats only (no overall win/loss count)
+            await this.container.statsService.updateExtraStatsOnly(userId, guildId, GameSource.RIDE_THE_BUS, {
               round_2_wins: 1,
             });
 
@@ -332,7 +333,8 @@ export class RideTheBusCommand extends Command {
               choice,
             });
 
-            await this.container.statsService.updateGameStats(userId, guildId, GameSource.RIDE_THE_BUS, true, betAmount, 0, {
+            // Track round-specific stats only (no overall win/loss count)
+            await this.container.statsService.updateExtraStatsOnly(userId, guildId, GameSource.RIDE_THE_BUS, {
               round_3_wins: 1,
             });
 

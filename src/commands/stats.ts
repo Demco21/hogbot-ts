@@ -295,10 +295,10 @@ export class StatsCommand extends Command {
     return [
       `**Current Balance:** ${formatCoins(balance)}`,
       `**Highest Balance:** ${formatCoins(highestBalance)}`,
-      `🎯 **Highest Bet:** ${formatCoins(highestBet)} (${highestBetGame})`,
-      `💰 **Highest Payout:** ${formatCoins(highestPayout)} (${highestPayoutGame})`,
-      `💀 **Biggest Loss:** ${formatCoins(highestLoss)} (${highestLossGame})`,
-      `🙏 **Beg Count:** ${begCount.toLocaleString('en-US')}`,
+      `**Biggest Bet:** ${formatCoins(highestBet)} (${highestBetGame})`,
+      `**Biggest Payout:** ${formatCoins(highestPayout)} (${highestPayoutGame})`,
+      `**Biggest Loss:** ${formatCoins(highestLoss)} (${highestLossGame})`,
+      `**Beg Count:** ${begCount.toLocaleString('en-US')}`,
     ].join('\n');
   }
 
@@ -354,7 +354,7 @@ export class StatsCommand extends Command {
             const roundWins = (stat.extra_stats[`round_${round}_wins`] as number) || 0;
             const roundLosses = (stat.extra_stats[`round_${round}_losses`] as number) || 0;
             if (roundWins + roundLosses > 0) {
-              valueLines.push(`↳ Round ${round}: ${this.formatWinLossLine(roundWins, roundLosses)}`);
+              valueLines.push(`↳ Rd ${round}: ${this.formatWinLossLine(roundWins, roundLosses)}`);
             }
           }
         }
@@ -404,13 +404,13 @@ export class StatsCommand extends Command {
     const total = red + black;
 
     if (total === 0) {
-      return 'Round 1 Color: _no data yet_';
+      return 'Rd 1 Color: _no data yet_';
     }
 
     const redPct = ((red / total) * 100).toFixed(1);
     const blackPct = ((black / total) * 100).toFixed(1);
 
-    return `Round 1 Color: Red **${red.toLocaleString('en-US')}** (${redPct}%) • Black **${black.toLocaleString('en-US')}** (${blackPct}%)`;
+    return `Rd 1 Color: R: **${red.toLocaleString('en-US')}** (${redPct}%) | B: **${black.toLocaleString('en-US')}** (${blackPct}%)`;
   }
 
   /**

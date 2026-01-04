@@ -47,7 +47,7 @@ export class LoanCommand extends Command {
   public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
     try {
       // Defer reply immediately to prevent timeout
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const senderId = interaction.user.id;
       const guildId = interaction.guildId!;

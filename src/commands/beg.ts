@@ -51,7 +51,7 @@ export class BegCommand extends Command {
         // Rejection message - ephemeral so only they see it
         await interaction.reply({
           content: `🫳 You're not desperate enough *yet*.\nYou still have **${formatCoins(currentBalance)}**.\n\n*You can beg when you have less than ${formatCoins(minBet)}.*`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -104,7 +104,7 @@ export class BegCommand extends Command {
         if (interaction.deferred) {
           await interaction.editReply({ content: errorMessage });
         } else if (!interaction.replied) {
-          await interaction.reply({ content: errorMessage, ephemeral: true });
+          await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
         }
       } catch (replyError) {
         this.container.logger.error('Failed to send error message:', replyError);

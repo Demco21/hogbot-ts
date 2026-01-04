@@ -217,6 +217,69 @@ export class StatsService {
   }
 
   /**
+   * Update only extra stats without affecting win/loss counts
+   * Useful for tracking intermediate round outcomes in multi-round games
+   *
+   * @param userId - Discord user ID
+   * @param guildId - Discord guild ID
+   * @param gameSource - Game source
+   * @param extraStats - Extra game-specific stats to merge
+   */
+  async updateExtraStatsOnly(
+    userId: string,
+    guildId: string,
+    gameSource: GameSource,
+    extraStats: Record<string, any> = {}
+  ): Promise<void> {
+    const client = await pool.connect();
+    try {
+      // Get current stats or create initial entry if doesn't exist
+      const currentStats = await this.getGameStats(userId, guildId, gameSource);
+
+      if (!currentStats) {
+        // Create initial stats entry with zeros (no game played yet)
+        await client.query(
+          `INSERT INTO game_stats (
+             user_id, guild_id, game_source, played, wins, losses,
+             current_win_streak, current_losing_streak,
+             best_win_streak, worst_losing_streak,
+             highest_bet, highest_payout, highest_loss, extra_stats
+           ) VALUES ($1, $2, $3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, $4)`,
+          [userId, guildId, gameSource, JSON.stringify(extraStats)]
+        );
+      } else {
+        // Merge extra stats - increment counters instead of overwriting
+        const mergedExtraStats = { ...currentStats.extra_stats };
+        for (const [key, value] of Object.entries(extraStats)) {
+          if (typeof value === 'number' && typeof mergedExtraStats[key] === 'number') {
+            // Increment numeric values
+            mergedExtraStats[key] = (mergedExtraStats[key] as number) + value;
+          } else if (mergedExtraStats[key] === undefined) {
+            // New stat - set it
+            mergedExtraStats[key] = value;
+          } else {
+            // Overwrite non-numeric or mismatched types
+            mergedExtraStats[key] = value;
+          }
+        }
+
+        // Update only extra_stats field
+        await client.query(
+          `UPDATE game_stats
+           SET extra_stats = $4,
+               updated_at = NOW()
+           WHERE user_id = $1 AND guild_id = $2 AND game_source = $3`,
+          [userId, guildId, gameSource, JSON.stringify(mergedExtraStats)]
+        );
+      }
+
+      logger.debug(`Updated extra stats only for ${userId} in guild ${guildId} in ${gameSource}`);
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Get wrapped stats (aggregated across all games) for a user in a specific guild
    *
    * @param userId - Discord user ID
