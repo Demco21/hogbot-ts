@@ -248,6 +248,30 @@ docker logs hogbot -f
 git pull && docker build -t hogbot-ts . && docker-compose -f docker-compose.prod.yml down && docker-compose -f docker-compose.prod.yml up -d && docker logs hogbot -f
 ```
 
+### Automated Deployment Script
+
+For easier deployments, use the included `deploy-prod.sh` script:
+
+```bash
+# Make the script executable (first time only)
+chmod +x deploy-prod.sh
+
+# Run the deployment script
+./deploy-prod.sh
+```
+
+**What the script does:**
+1. Creates and configures the data directory for file logging
+2. Stops the existing container
+3. Builds a new Docker image with the latest code
+4. Starts the container in detached mode
+5. Shows container status and recent logs
+
+**After deployment, you can:**
+- View live logs: `sudo docker logs hogbot -f`
+- View file logs: `tail -f ./data/hogbot-$(date +%Y-%m-%d).log`
+- Restart bot: `sudo docker-compose -f docker-compose.prod.yml restart`
+
 ## Project Structure
 
 ```

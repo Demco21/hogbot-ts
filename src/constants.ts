@@ -57,7 +57,7 @@ export const CASINO_CONFIG = {
 export const GAME_BET_LIMITS = {
   BLACKJACK: {
     MIN: 50,
-    MAX: 100_000,
+    MAX: 1_000_000_000,
   },
   SLOTS: {
     MIN: 50,
@@ -69,7 +69,7 @@ export const GAME_BET_LIMITS = {
   },
   RIDE_THE_BUS: {
     MIN: 50,
-    MAX: 100_000,
+    MAX: 1_000_000_000,
   },
 } as const;
 
