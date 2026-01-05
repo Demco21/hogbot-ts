@@ -21,7 +21,7 @@ TypeScript casino bot built with Sapphire Framework and PostgreSQL.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 24+ (LTS)
 - Docker Desktop (for PostgreSQL)
 
 ### Installation

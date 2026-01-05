@@ -71,7 +71,7 @@ await client.query(`SELECT * FROM users WHERE id = '${userId}'`);
 ## Running the Bot
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 24+ (LTS)
 - Docker Desktop (for PostgreSQL)
 - Discord bot token
 
