@@ -257,12 +257,7 @@ export class StatsCommand extends Command {
     if (!user) return null;
 
     const balance = user.balance;
-
-    // Get highest balance from balance_history
-    const balanceHistory = await this.container.walletService.getBalanceHistory(userId, guildId);
-    const highestBalance = balanceHistory && balanceHistory.length > 0
-      ? Math.max(...balanceHistory.map((h) => h.balance))
-      : balance;
+    const highestBalance = user.high_water_balance;
 
     // Get highest bet, payout, loss from game_stats
     const allGameStats = await this.container.statsService.getAllGameStats(userId, guildId);
