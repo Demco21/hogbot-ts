@@ -2,7 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
-import { formatCoins } from '../lib/utils.js';
+import { formatCoins } from '../utils/utils.js';
 
 /**
  * MyWallet command - Shows the user's current balance

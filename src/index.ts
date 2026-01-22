@@ -4,11 +4,12 @@ import { Config } from './config.js';
 import { SapphireWinstonLogger, winstonLogger } from './lib/logger.js';
 import { initializeDatabase, closeDatabase } from './lib/database.js';
 import { startCleanupJobs } from './lib/cleanup.js';
-import { startBeersScheduler } from './lib/beers-scheduler.js';
+import { startBeersScheduler } from './tasks/beers-scheduler.js';
 import { WalletService } from './services/WalletService.js';
 import { LeaderboardService } from './services/LeaderboardService.js';
 import { StatsService } from './services/StatsService.js';
 import { BlackjackService } from './services/BlackjackService.js';
+import { RideTheBusService } from './services/RideTheBusService.js';
 import { GameStateService } from './services/GameStateService.js';
 import { GuildSettingsService } from './services/GuildSettingsService.js';
 import { VoiceTimeService } from './services/VoiceTimeService.js';
@@ -25,6 +26,7 @@ declare module '@sapphire/pieces' {
     leaderboardService: LeaderboardService;
     statsService: StatsService;
     blackjackService: BlackjackService;
+    rideTheBusService: RideTheBusService;
     gameStateService: GameStateService;
     voiceTimeService: VoiceTimeService;
   }
@@ -69,6 +71,11 @@ class HogBotClient extends SapphireClient {
       container.walletService,
       container.statsService,
       container.leaderboardService,
+      container.gameStateService
+    );
+    container.rideTheBusService = new RideTheBusService(
+      container.walletService,
+      container.statsService,
       container.gameStateService
     );
 

@@ -1,16 +1,10 @@
 import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
-import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ComponentType,
-  EmbedBuilder,
-  MessageFlags,
-  type ChatInputCommandInteraction,
-  type ButtonInteraction,
-} from 'discord.js';
+import { ComponentType, MessageFlags, type ChatInputCommandInteraction, type ButtonInteraction } from 'discord.js';
 import { Config } from '../config.js';
 import { GameSource, UpdateType, GAME_BET_LIMITS, GAME_INTERACTION_TIMEOUT_MINUTES } from '../constants.js';
+import { handleGameTimeoutUI } from '../utils/game-utils.js';
+import { BTN_ID_HIT, BTN_ID_STAND, BTN_ID_DOUBLE, BTN_ID_SPLIT } from '../services/BlackjackService.js';
 
 @ApplyOptions<Command.Options>({
   name: 'blackjack',
@@ -99,13 +93,13 @@ export class BlackjackCommand extends Command {
 
         try {
           // Route to the appropriate game method based on button clicked
-          if (customId === 'bj_hit') {
+          if (customId === BTN_ID_HIT) {
             await game.hit(buttonInteraction);
-          } else if (customId === 'bj_stand') {
+          } else if (customId === BTN_ID_STAND) {
             await game.stand(buttonInteraction);
-          } else if (customId === 'bj_double') {
+          } else if (customId === BTN_ID_DOUBLE) {
             await game.double(buttonInteraction);
-          } else if (customId === 'bj_split') {
+          } else if (customId === BTN_ID_SPLIT) {
             await game.split(buttonInteraction);
           }
 
@@ -135,69 +129,22 @@ export class BlackjackCommand extends Command {
           if (reason === 'time') {
             this.container.logger.info(`Blackjack game timed out for user ${userId}`);
 
-            // Log timeout as loss
-            await this.container.walletService.updateBalance(
-              userId,
-              guildId,
-              0,
-              GameSource.BLACKJACK,
-              UpdateType.BET_LOST,
-              {
-                bet_amount: bet,
-                payout_amount: 0,
-                reason: 'timeout',
-              }
-            );
+            // Log timeout as loss (no balance change - bet was already deducted)
+            await this.container.walletService.logTransaction(userId, guildId, GameSource.BLACKJACK, UpdateType.BET_LOST, {
+              bet_amount: bet,
+              payout_amount: 0,
+              reason: 'timeout',
+            });
 
             // Update stats
-            await this.container.statsService.updateGameStats(
-              userId,
-              guildId,
-              GameSource.BLACKJACK,
-              false, // lost
-              bet,
-              0, // no payout
-              {}
-            );
+            await this.container.statsService.updateGameStats(userId, guildId, GameSource.BLACKJACK, false, bet, 0, {});
 
-            try {
-              // Fetch current message to get embeds and components
-              const message = await response.fetch();
-              const embeds = message.embeds;
-              const components = message.components;
-
-              // Disable all buttons
-              const disabledComponents = components.map((row: any) => {
-                const actionRow = new ActionRowBuilder<ButtonBuilder>();
-                row.components.forEach((component: any) => {
-                  if (component.type === ComponentType.Button) {
-                    const button = ButtonBuilder.from(component);
-                    button.setDisabled(true);
-                    actionRow.addComponents(button);
-                  }
-                });
-                return actionRow;
-              });
-
-              // Update embed footer if embed exists
-              if (embeds.length > 0) {
-                const embed = EmbedBuilder.from(embeds[0]);
-                embed.setFooter({ text: '⏰ Game timed out, thanks for the donation!' });
-
-                await interaction.editReply({
-                  embeds: [embed],
-                  components: disabledComponents,
-                });
-              } else {
-                await interaction.editReply({
-                  components: disabledComponents,
-                });
-              }
-            } catch (error) {
-              this.container.logger.error('Error handling blackjack timeout:', error);
-              // Fallback to just removing components
-              await interaction.editReply({ components: [] }).catch(() => {});
-            }
+            // Update UI with timeout state
+            await handleGameTimeoutUI({
+              interaction,
+              response,
+              logger: this.container.logger,
+            });
           }
         } catch (error) {
           this.container.logger.error('Error cleaning up blackjack game:', error);

@@ -2,7 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
-import { formatCoins } from '../lib/utils.js';
+import { formatCoins } from '../utils/utils.js';
 
 /**
  * Leaderboard command - Shows the top 10 richest users
@@ -93,7 +93,7 @@ export class LeaderboardCommand extends Command {
       // Create embed
       const embed = new EmbedBuilder()
         .setColor(0xffd700)
-        .setTitle('🏆 Leaderboard - Top 10 Richest Users')
+        .setTitle('🏆 Leaderboard - Top 10 Richest Hogs')
         .setDescription(description)
         .setFooter({ text: 'Keep gambling to climb the ranks!' })
         .setTimestamp();

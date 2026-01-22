@@ -8,22 +8,61 @@ import {
   Message,
   MessageFlags,
   ChatInputCommandInteraction,
-  Guild,
 } from 'discord.js';
 import { GameSource, UpdateType, BLACKJACK_CONFIG, GAME_BET_LIMITS } from '../constants.js';
 import { WalletService } from './WalletService.js';
 import { StatsService } from './StatsService.js';
 import { LeaderboardService } from './LeaderboardService.js';
 import { GameStateService } from './GameStateService.js';
+import { DeckService, type Card } from './DeckService.js';
 import { safeLogger as logger } from '../lib/safe-logger.js';
-import { formatCoins } from '../lib/utils.js';
+import { formatCoins } from '../utils/utils.js';
+
+/** Embed constants */
+const EMBED_TITLE = '🃏 Blackjack';
+const EMBED_FOOTER = 'Hit / Stand / Double / Split. No surrender. Dealer stands on 17.';
+
+/** Embed colors */
+const COLOR_IN_PROGRESS = 0xdaa520;
+const COLOR_WIN = 0x00ff00;
+const COLOR_LOSS = 0xff0000;
+const COLOR_PUSH = 0xd3d3d3;
+
+/** Field names */
+const FIELD_BET = 'Bet';
+const FIELD_FINAL_PAYOUT = 'Final Payout';
+const FIELD_BALANCE = 'Balance';
+
+/** Button IDs (exported for use by command) */
+export const BTN_ID_HIT = 'bj_hit';
+export const BTN_ID_STAND = 'bj_stand';
+export const BTN_ID_DOUBLE = 'bj_double';
+export const BTN_ID_SPLIT = 'bj_split';
+
+/** Button labels */
+const BTN_LABEL_HIT = '➕ Hit';
+const BTN_LABEL_STAND = '✋ Stand';
+const BTN_LABEL_DOUBLE = '💥 Double';
+const BTN_LABEL_SPLIT = '🪓 Split';
+
+/** Stat keys */
+const STAT_BLACKJACK_WINS = 'blackjack_wins';
+const STAT_DOUBLE_DOWN_WINS = 'double_down_wins';
+const STAT_DOUBLE_DOWN_LOSSES = 'double_down_losses';
+
+/** Payout multipliers */
+const PAYOUT_BLACKJACK_NUMERATOR = 5;
+const PAYOUT_BLACKJACK_DENOMINATOR = 2;
+const PAYOUT_WIN_MULTIPLIER = 2;
 
 const MIN_BET = GAME_BET_LIMITS.BLACKJACK.MIN;
 
-interface Card {
-  rank: number; // 2-14 (Ace = 14)
-  suit: string; // ♠️ ♥️ ♦️ ♣️
-}
+type HandResult = 'win' | 'loss' | 'push' | 'blackjack';
+
+const RESULT_WIN: HandResult = 'win';
+const RESULT_LOSS: HandResult = 'loss';
+const RESULT_PUSH: HandResult = 'push';
+const RESULT_BLACKJACK:HandResult = 'blackjack';
 
 interface BJHand {
   cards: Card[];
@@ -32,7 +71,7 @@ interface BJHand {
   from_split: boolean;
   natural_blackjack: boolean;
   finished: boolean;
-  result: 'win' | 'loss' | 'push' | 'blackjack' | null;
+  result: HandResult | null;
 }
 
 /**
@@ -48,13 +87,13 @@ class BlackjackGame {
   private walletService: WalletService;
   private statsService: StatsService;
   private leaderboardService: LeaderboardService;
+  private deckService: DeckService;
 
   private deck: Card[] = [];
   private hands: BJHand[] = [];
   private activeHandIdx: number = 0;
   private dealerCards: Card[] = [];
   private message: Message | null = null;
-  private timeout: number = 180000; // 3 minutes
   private onGameEnd: (() => void) | null = null;
 
   constructor(
@@ -64,6 +103,7 @@ class BlackjackGame {
     walletService: WalletService,
     statsService: StatsService,
     leaderboardService: LeaderboardService,
+    deckService: DeckService,
     onGameEnd?: () => void
   ) {
     this.player = player;
@@ -72,9 +112,10 @@ class BlackjackGame {
     this.walletService = walletService;
     this.statsService = statsService;
     this.leaderboardService = leaderboardService;
+    this.deckService = deckService;
     this.onGameEnd = onGameEnd || null;
 
-    this.deck = this.newDeck();
+    this.deck = this.deckService.createDeck();
     this.initDeal();
   }
 
@@ -88,57 +129,26 @@ class BlackjackGame {
 
   // ========== Deck Management ==========
 
-  private newDeck(): Card[] {
-    const suits = ['♠️', '♥️', '♦️', '♣️'];
-    const deck: Card[] = [];
-    for (const suit of suits) {
-      for (let rank = 2; rank <= 14; rank++) {
-        deck.push({ rank, suit });
-      }
-    }
-    // Shuffle
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deck[i], deck[j]] = [deck[j], deck[i]];
-    }
-    return deck;
-  }
-
   private draw(): Card {
-    if (this.deck.length === 0) {
-      this.deck = this.newDeck();
-    }
-    return this.deck.pop()!;
+    return this.deckService.draw(this.deck);
   }
 
   private formatCard(card: Card): string {
-    const rankMap: Record<number, string> = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
-    const rank = rankMap[card.rank] || card.rank.toString();
-    return `${rank}${card.suit}`;
+    return this.deckService.formatCard(card);
   }
 
   private formatCards(cards: Card[]): string {
-    return cards.map((c) => this.formatCard(c)).join(' ');
+    return this.deckService.formatCards(cards);
   }
 
   // ========== Card Value Calculations ==========
-
-  private cardValue(card: Card): number {
-    if (card.rank >= 11 && card.rank <= 13) return 10;
-    if (card.rank === 14) return 11; // Ace
-    return card.rank;
-  }
-
-  private isTenValue(card: Card): boolean {
-    return card.rank === 10 || (card.rank >= 11 && card.rank <= 13);
-  }
 
   private handValue(cards: Card[]): number {
     let total = 0;
     let aces = 0;
 
     for (const card of cards) {
-      const value = this.cardValue(card);
+      const value = this.deckService.getBlackjackValue(card);
       if (card.rank === 14) aces++;
       total += value;
     }
@@ -217,7 +227,7 @@ class BlackjackGame {
 
   private peekRequired(): boolean {
     const upcard = this.dealerUpcard();
-    return upcard.rank === 14 || this.isTenValue(upcard);
+    return upcard.rank === 14 || this.deckService.isTenValue(upcard);
   }
 
   private activeHand(): BJHand {
@@ -230,8 +240,8 @@ class BlackjackGame {
     if (this.hands.length !== 1) return false;
     if (h.cards.length !== 2) return false;
 
-    const v1 = this.cardValue(h.cards[0]);
-    const v2 = this.cardValue(h.cards[1]);
+    const v1 = this.deckService.getBlackjackValue(h.cards[0]);
+    const v2 = this.deckService.getBlackjackValue(h.cards[1]);
     return v1 === v2;
   }
 
@@ -278,16 +288,16 @@ class BlackjackGame {
 
     const getStatus = (h: BJHand): string => {
       if (h.finished && h.result) {
-        if (h.result === 'win') return ' — ✅';
-        if (h.result === 'push') return ' — 🤝';
-        if (h.result === 'loss') return ' — ❌';
-        if (h.result === 'blackjack') return ' — ✅';
+        if (h.result === RESULT_WIN) return ' — ✅';
+        if (h.result === RESULT_PUSH) return ' — 🤝';
+        if (h.result === RESULT_LOSS) return ' — ❌';
+        if (h.result === RESULT_BLACKJACK) return ' — ✅';
       }
       return '';
     };
 
     const getEmbedColor = (hands: BJHand[], gameOverFlag: boolean): number => {
-      if (!gameOverFlag) return 0xdaa520; // dark gold
+      if (!gameOverFlag) return COLOR_IN_PROGRESS;
 
       let sawPush = false;
       let sawLoss = false;
@@ -296,22 +306,22 @@ class BlackjackGame {
         if (!hand.finished) continue;
         if (!hand.result) continue;
 
-        if (hand.result === 'win' || hand.result === 'blackjack') {
-          return 0x00ff00; // green
+        if (hand.result === RESULT_WIN || hand.result === RESULT_BLACKJACK) {
+          return COLOR_WIN;
         }
-        if (hand.result === 'loss') {
+        if (hand.result === RESULT_LOSS) {
           sawLoss = true;
           continue;
         }
-        if (hand.result === 'push') {
+        if (hand.result === RESULT_PUSH) {
           sawPush = true;
           continue;
         }
       }
 
-      if (sawPush) return 0xd3d3d3; // light grey
-      if (sawLoss) return 0xff0000; // red
-      return 0xd3d3d3; // light grey
+      if (sawPush) return COLOR_PUSH;
+      if (sawLoss) return COLOR_LOSS;
+      return COLOR_PUSH;
     };
 
     for (let idx = 0; idx < this.hands.length; idx++) {
@@ -335,7 +345,7 @@ class BlackjackGame {
     if (note) desc += `\n\n${note}`;
 
     const embed = new EmbedBuilder()
-      .setTitle('🃏 Blackjack')
+      .setTitle(EMBED_TITLE)
       .setDescription(desc)
       .setColor(getEmbedColor(this.hands, gameOver));
 
@@ -344,7 +354,7 @@ class BlackjackGame {
     // Get current balance
     const balance = await this.walletService.getBalance(this.player.id, this.guildId);
 
-    embed.addFields({ name: 'Bet', value: formatCoins(totalBet), inline: true });
+    embed.addFields({ name: FIELD_BET, value: formatCoins(totalBet), inline: true });
 
     if (gameOver) {
       let payout = 0;
@@ -352,74 +362,58 @@ class BlackjackGame {
         payout = payoutOverride;
       } else {
         for (const h of this.hands) {
-          if (h.result === 'win') {
-            payout += h.bet * 2;
-          } else if (h.result === 'push') {
+          if (h.result === RESULT_WIN) {
+            payout += h.bet * PAYOUT_WIN_MULTIPLIER;
+          } else if (h.result === RESULT_PUSH) {
             payout += h.bet;
-          } else if (h.result === 'blackjack') {
-            payout += Math.floor((h.bet * 5) / 2);
+          } else if (h.result === RESULT_BLACKJACK) {
+            payout += Math.floor((h.bet * PAYOUT_BLACKJACK_NUMERATOR) / PAYOUT_BLACKJACK_DENOMINATOR);
           }
         }
       }
 
-      embed.addFields({ name: 'Final Payout', value: formatCoins(payout), inline: true });
+      embed.addFields({ name: FIELD_FINAL_PAYOUT, value: formatCoins(payout), inline: true });
     }
 
-    embed.addFields({ name: 'Balance', value: formatCoins(balance), inline: true });
+    embed.addFields({ name: FIELD_BALANCE, value: formatCoins(balance), inline: true });
 
-    embed.setFooter({ text: 'Hit / Stand / Double / Split. No surrender. Dealer stands on 17.' });
+    embed.setFooter({ text: EMBED_FOOTER });
 
     return embed;
   }
 
   // ========== Button Building ==========
 
-  private createButtons(): ActionRowBuilder<ButtonBuilder>[] {
-    const hitBtn = new ButtonBuilder().setCustomId('bj_hit').setLabel('➕ Hit').setStyle(ButtonStyle.Primary);
+  private createButtons(disabled = false): ActionRowBuilder<ButtonBuilder>[] {
+    const hitBtn = new ButtonBuilder()
+      .setCustomId(BTN_ID_HIT)
+      .setLabel(BTN_LABEL_HIT)
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(disabled);
 
-    const standBtn = new ButtonBuilder().setCustomId('bj_stand').setLabel('✋ Stand').setStyle(ButtonStyle.Secondary);
+    const standBtn = new ButtonBuilder()
+      .setCustomId(BTN_ID_STAND)
+      .setLabel(BTN_LABEL_STAND)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(disabled);
 
     const doubleBtn = new ButtonBuilder()
-      .setCustomId('bj_double')
-      .setLabel('💥 Double')
+      .setCustomId(BTN_ID_DOUBLE)
+      .setLabel(BTN_LABEL_DOUBLE)
       .setStyle(ButtonStyle.Success)
-      .setDisabled(!this.canDouble());
+      .setDisabled(disabled || !this.canDouble());
 
     const splitBtn = new ButtonBuilder()
-      .setCustomId('bj_split')
-      .setLabel('🪓 Split')
+      .setCustomId(BTN_ID_SPLIT)
+      .setLabel(BTN_LABEL_SPLIT)
       .setStyle(ButtonStyle.Success)
-      .setDisabled(!this.canSplit());
+      .setDisabled(disabled || !this.canSplit());
 
     return [new ActionRowBuilder<ButtonBuilder>().addComponents(hitBtn, standBtn, doubleBtn, splitBtn)];
   }
 
   private disableAllButtons(): ActionRowBuilder<ButtonBuilder>[] {
-    const hitBtn = new ButtonBuilder()
-      .setCustomId('bj_hit')
-      .setLabel('➕ Hit')
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(true);
-
-    const standBtn = new ButtonBuilder()
-      .setCustomId('bj_stand')
-      .setLabel('✋ Stand')
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(true);
-
-    const doubleBtn = new ButtonBuilder()
-      .setCustomId('bj_double')
-      .setLabel('💥 Double')
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(true);
-
-    const splitBtn = new ButtonBuilder()
-      .setCustomId('bj_split')
-      .setLabel('🪓 Split')
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(true);
-
-    return [new ActionRowBuilder<ButtonBuilder>().addComponents(hitBtn, standBtn, doubleBtn, splitBtn)];
+    return this.createButtons(true);
   }
 
   // ========== Safe Message Editing ==========
@@ -494,7 +488,7 @@ class BlackjackGame {
     // Step 3: Check if busted
     if (hv > 21) {
       h.finished = true;
-      h.result = 'loss';
+      h.result = RESULT_LOSS;
       const bustNote = this.hasUnfinishedOtherHand()
         ? '💥 **Double down**... and you busted. Moving to the next hand...'
         : '💥 **Double down**... and you busted.';
@@ -564,7 +558,7 @@ class BlackjackGame {
 
     if (hv > 21) {
       h.finished = true;
-      h.result = 'loss';
+      h.result = RESULT_LOSS;
       const note = this.hasUnfinishedOtherHand()
         ? '💀 **Busted.** Moving to the next hand...'
         : '💀 **Busted.** Resolving dealer...';
@@ -682,7 +676,8 @@ class BlackjackGame {
   ): Promise<void> {
     const balance = await this.walletService.getBalance(this.player.id, this.guildId);
 
-    await this.walletService.updateBalance(this.player.id, this.guildId,0, GameSource.BLACKJACK, UpdateType.BET_LOST, {
+    // Log the loss (no balance change - bet was already deducted)
+    await this.walletService.logTransaction(this.player.id, this.guildId, GameSource.BLACKJACK, UpdateType.BET_LOST, {
       bet_amount: this.baseBet,
       payout_amount: 0,
       reason: 'dealer_blackjack',
@@ -690,7 +685,7 @@ class BlackjackGame {
 
     for (const h of this.hands) {
       h.finished = true;
-      h.result = 'loss';
+      h.result = RESULT_LOSS;
     }
 
     await this.statsService.updateGameStats(this.player.id, this.guildId, GameSource.BLACKJACK, false, this.baseBet, 0, {});
@@ -732,7 +727,7 @@ class BlackjackGame {
 
     for (const h of this.hands) {
       h.finished = true;
-      h.result = 'push';
+      h.result = RESULT_PUSH;
     }
 
     // Push doesn't count as win or loss for stats, so we don't update stats here
@@ -753,7 +748,7 @@ class BlackjackGame {
   }
 
   private async resolvePlayerBlackjack(interaction: ChatInputCommandInteraction | ButtonInteraction): Promise<void> {
-    const payout = Math.floor((this.baseBet * 5) / 2); // 3:2 payout
+    const payout = Math.floor((this.baseBet * PAYOUT_BLACKJACK_NUMERATOR) / PAYOUT_BLACKJACK_DENOMINATOR);
     const balance = await this.walletService.getBalance(this.player.id, this.guildId);
     const newBalance = await this.walletService.updateBalance(
       this.player.id,
@@ -770,10 +765,10 @@ class BlackjackGame {
     );
 
     this.hands[0].finished = true;
-    this.hands[0].result = 'blackjack';
+    this.hands[0].result = RESULT_BLACKJACK;
 
     await this.statsService.updateGameStats(this.player.id, this.guildId, GameSource.BLACKJACK, true, this.baseBet, payout, {
-      blackjack_wins: 1,
+      [STAT_BLACKJACK_WINS]: 1,
     });
 
     const embed = await this.buildEmbed({
@@ -797,9 +792,10 @@ class BlackjackGame {
       const balance = await this.walletService.getBalance(this.player.id, this.guildId);
 
       for (const h of this.hands) {
-        h.result = 'loss';
+        h.result = RESULT_LOSS;
         h.finished = true;
-        await this.walletService.updateBalance(this.player.id, this.guildId,0, GameSource.BLACKJACK, UpdateType.BET_LOST, {
+        // Log the loss (no balance change - bet was already deducted)
+        await this.walletService.logTransaction(this.player.id, this.guildId, GameSource.BLACKJACK, UpdateType.BET_LOST, {
           bet_amount: h.bet,
           payout_amount: 0,
           double_down: h.doubled,
@@ -811,7 +807,7 @@ class BlackjackGame {
       for (const h of this.hands) {
         const extraStats: Record<string, any> = {};
         if (h.doubled) {
-          extraStats.double_down_losses = 1;
+          extraStats[STAT_DOUBLE_DOWN_LOSSES] = 1;
         }
         await this.statsService.updateGameStats(this.player.id, this.guildId, GameSource.BLACKJACK, false, h.bet, 0, extraStats);
       }
@@ -840,9 +836,10 @@ class BlackjackGame {
 
     for (const h of this.hands) {
       if (this.handValue(h.cards) > 21) {
-        h.result = 'loss';
+        h.result = RESULT_LOSS;
         h.finished = true;
-        await this.walletService.updateBalance(this.player.id, this.guildId,0, GameSource.BLACKJACK, UpdateType.BET_LOST, {
+        // Log the loss (no balance change - bet was already deducted)
+        await this.walletService.logTransaction(this.player.id, this.guildId, GameSource.BLACKJACK, UpdateType.BET_LOST, {
           bet_amount: h.bet,
           payout_amount: 0,
           double_down: h.doubled,
@@ -854,39 +851,40 @@ class BlackjackGame {
       const playerTotal = this.handValue(h.cards);
 
       if (dealerBust) {
-        const payout = h.bet * 2;
+        const payout = h.bet * PAYOUT_WIN_MULTIPLIER;
         totalPayout += payout;
-        await this.walletService.updateBalance(this.player.id, this.guildId,payout, GameSource.BLACKJACK, UpdateType.BET_WON, {
+        await this.walletService.updateBalance(this.player.id, this.guildId, payout, GameSource.BLACKJACK, UpdateType.BET_WON, {
           bet_amount: h.bet,
           payout_amount: payout,
           double_down: h.doubled,
           reason: 'dealer_bust',
         });
-        h.result = 'win';
+        h.result = RESULT_WIN;
         h.finished = true;
         wonAnyHand = true;
         continue;
       }
 
       if (playerTotal > dealerTotal) {
-        const payout = h.bet * 2;
+        const payout = h.bet * PAYOUT_WIN_MULTIPLIER;
         totalPayout += payout;
-        await this.walletService.updateBalance(this.player.id, this.guildId,payout, GameSource.BLACKJACK, UpdateType.BET_WON, {
+        await this.walletService.updateBalance(this.player.id, this.guildId, payout, GameSource.BLACKJACK, UpdateType.BET_WON, {
           bet_amount: h.bet,
           payout_amount: payout,
           double_down: h.doubled,
           reason: 'higher_than_dealer',
         });
-        h.result = 'win';
+        h.result = RESULT_WIN;
         wonAnyHand = true;
       } else if (playerTotal < dealerTotal) {
-        await this.walletService.updateBalance(this.player.id, this.guildId,0, GameSource.BLACKJACK, UpdateType.BET_LOST, {
+        // Log the loss (no balance change - bet was already deducted)
+        await this.walletService.logTransaction(this.player.id, this.guildId, GameSource.BLACKJACK, UpdateType.BET_LOST, {
           bet_amount: h.bet,
           payout_amount: 0,
           double_down: h.doubled,
           reason: 'lower_than_dealer',
         });
-        h.result = 'loss';
+        h.result = RESULT_LOSS;
       } else {
         const payout = h.bet;
         totalPayout += payout;
@@ -896,7 +894,7 @@ class BlackjackGame {
           double_down: h.doubled,
           reason: 'push',
         });
-        h.result = 'push';
+        h.result = RESULT_PUSH;
       }
 
       h.finished = true;
@@ -904,22 +902,26 @@ class BlackjackGame {
 
     // Update stats - track each hand individually for double down stats
     for (const h of this.hands) {
-      const won = h.result === 'win' || h.result === 'blackjack';
-      const payout = won ? (h.result === 'blackjack' ? Math.floor((h.bet * 5) / 2) : h.bet * 2) : 0;
+      const won = h.result === RESULT_WIN || h.result === RESULT_BLACKJACK;
+      const payout = won
+        ? h.result === RESULT_BLACKJACK
+          ? Math.floor((h.bet * PAYOUT_BLACKJACK_NUMERATOR) / PAYOUT_BLACKJACK_DENOMINATOR)
+          : h.bet * PAYOUT_WIN_MULTIPLIER
+        : 0;
 
       const extraStats: Record<string, any> = {};
       if (h.doubled && won) {
-        extraStats.double_down_wins = 1;
-      } else if (h.doubled && h.result === 'loss') {
-        extraStats.double_down_losses = 1;
+        extraStats[STAT_DOUBLE_DOWN_WINS] = 1;
+      } else if (h.doubled && h.result === RESULT_LOSS) {
+        extraStats[STAT_DOUBLE_DOWN_LOSSES] = 1;
       }
 
-      if (h.result === 'blackjack') {
+      if (h.result === RESULT_BLACKJACK) {
         extraStats.blackjack_wins = 1;
       }
 
       // Don't count pushes as wins or losses
-      if (h.result !== 'push') {
+      if (h.result !== RESULT_PUSH) {
         await this.statsService.updateGameStats(this.player.id, this.guildId, GameSource.BLACKJACK, won, h.bet, payout, extraStats);
       }
     }
@@ -986,6 +988,7 @@ export class BlackjackService {
   private statsService: StatsService;
   private leaderboardService: LeaderboardService;
   private gameStateService: GameStateService;
+  private deckService: DeckService;
   private activeSessions: Map<string, BlackjackGame> = new Map();
 
   constructor(
@@ -998,6 +1001,7 @@ export class BlackjackService {
     this.statsService = statsService;
     this.leaderboardService = leaderboardService;
     this.gameStateService = gameStateService;
+    this.deckService = new DeckService();
   }
 
   async startGame(interaction: ChatInputCommandInteraction, bet: number): Promise<Message | null> {
@@ -1057,6 +1061,7 @@ export class BlackjackService {
         this.walletService,
         this.statsService,
         this.leaderboardService,
+        this.deckService,
         async () => {
           // Cleanup callback - remove session when game ends
           this.activeSessions.delete(userId);

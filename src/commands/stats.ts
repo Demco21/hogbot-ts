@@ -6,7 +6,7 @@ import { Chart, registerables } from 'chart.js';
 import { registerFont } from 'canvas';
 import { Config } from '../config.js';
 import { GameSource, STATS_CONFIG } from '../constants.js';
-import { formatCoins } from '../lib/utils.js';
+import { formatCoins } from '../utils/utils.js';
 import { existsSync } from 'fs';
 
 // Register Chart.js components (required for v4)
@@ -417,6 +417,7 @@ export class StatsCommand extends Command {
       [GameSource.RIDE_THE_BUS]: '🚌 Ride the Bus',
       [GameSource.CEELO]: '🎲 Cee-Lo',
       [GameSource.BLACKJACK]: '🃏 Blackjack',
+      [GameSource.ROULETTE]: '🎱 Roulette',
       [GameSource.LOAN]: 'Loan',
       [GameSource.BEG]: 'Beg',
       [GameSource.ADMIN]: 'Admin',

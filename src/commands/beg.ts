@@ -4,7 +4,7 @@ import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
 import { CASINO_CONFIG, GAME_BET_LIMITS } from '../constants.js';
 import { GameSource, UpdateType } from '../constants.js';
-import { formatCoins } from '../lib/utils.js';
+import { formatCoins } from '../utils/utils.js';
 
 /**
  * Beg command - Gives users 500-1000 coins when they can't afford to play

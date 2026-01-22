@@ -1,7 +1,7 @@
 import { pool } from '../lib/database.js';
 import { GameSource, UpdateType, GAME_BET_LIMITS } from '../constants.js';
 import { safeLogger as logger } from '../lib/safe-logger.js';
-import { formatCoins } from '../lib/utils.js';
+import { formatCoins } from '../utils/utils.js';
 
 /**
  * Slot machine symbols with weights (matching Python implementation)

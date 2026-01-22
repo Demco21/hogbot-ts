@@ -2,7 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
-import { formatDuration } from '../lib/utils.js';
+import { formatDuration } from '../utils/utils.js';
 
 /**
  * VoiceTime command - Show voice channel time stats

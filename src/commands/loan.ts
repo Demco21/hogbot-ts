@@ -4,7 +4,7 @@ import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
 import { CASINO_CONFIG } from '../constants.js';
 import { pool } from '../lib/database.js';
-import { formatCoins } from '../lib/utils.js';
+import { formatCoins } from '../utils/utils.js';
 
 /**
  * Loan command - Transfer coins to another user

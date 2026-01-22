@@ -6,6 +6,7 @@ export enum GameSource {
   SLOTS = 'slots',
   CEELO = 'ceelo',
   RIDE_THE_BUS = 'ride_the_bus',
+  ROULETTE = 'roulette',
   LOAN = 'loan',
   BEG = 'beg',
   ADMIN = 'admin',
@@ -71,6 +72,10 @@ export const GAME_BET_LIMITS = {
     MIN: 50,
     MAX: 1_000_000_000,
   },
+  ROULETTE: {
+    MIN: 50,
+    MAX: 100_000,
+  },
 } as const;
 
 /**
@@ -93,6 +98,7 @@ export const GAME_CRASH_THRESHOLD_MINUTES: Record<GameSource, number> = {
   [GameSource.SLOTS]: GAME_INTERACTION_TIMEOUT_MINUTES + 1,
   [GameSource.CEELO]: GAME_INTERACTION_TIMEOUT_MINUTES + 1,
   [GameSource.RIDE_THE_BUS]: GAME_INTERACTION_TIMEOUT_MINUTES + 1,
+  [GameSource.ROULETTE]: GAME_INTERACTION_TIMEOUT_MINUTES + 1,
   [GameSource.LOAN]: GAME_INTERACTION_TIMEOUT_MINUTES + 1,
   [GameSource.BEG]: GAME_INTERACTION_TIMEOUT_MINUTES + 1,
   [GameSource.ADMIN]: GAME_INTERACTION_TIMEOUT_MINUTES + 1,

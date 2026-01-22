@@ -131,6 +131,7 @@ Use `.env.example` as a template.
 - **WalletService**: Balance operations, user creation, coin transfers, transaction logging
 - **LeaderboardService**: Rankings, richest member role management (debounced updates)
 - **StatsService**: Per-game statistics, wrapped stats, streak tracking, high scores
+- **DeckService**: Shared card deck management (used by Blackjack, Ride the Bus)
 - All services use the PostgreSQL connection pool from `lib/database.ts`
 - Services are accessed via `this.container.walletService` in commands
 
@@ -139,6 +140,14 @@ Use `.env.example` as a template.
 - Guild-specific commands using `registerGuildCommands`
 - Preconditions for channel restrictions (e.g., `CasinoChannelOnly`)
 - All casino commands should use the `CasinoChannelOnly` precondition
+- File names use kebab-case (e.g., `ride-the-bus.ts`, `my-wallet.ts`)
+
+**Utilities (`src/utils/`)**
+- **utils.ts**: Generic formatting utilities (`formatCoins`, `formatDuration`)
+- **game-utils.ts**: Shared game UI utilities (`handleGameTimeoutUI`)
+
+**Tasks (`src/tasks/`)**
+- **beers-scheduler.ts**: Scheduled background jobs
 
 **Database Layer (`src/lib/database.ts`)**
 - PostgreSQL connection pool with 20 max connections
@@ -379,9 +388,12 @@ async updateBalance(...) {
 - `src/constants.ts`: Game enums (GameSource, UpdateType), casino config
 - `src/lib/database.ts`: PostgreSQL connection pool
 - `src/lib/types.ts`: TypeScript type definitions
+- `src/utils/utils.ts`: Formatting utilities (formatCoins, formatDuration)
+- `src/utils/game-utils.ts`: Shared game UI utilities (timeout handling)
 - `src/services/WalletService.ts`: Balance operations
 - `src/services/LeaderboardService.ts`: Rankings and richest member role
 - `src/services/StatsService.ts`: Game statistics tracking
+- `src/services/DeckService.ts`: Shared card deck management
 
 ## Testing During Development
 
@@ -402,15 +414,36 @@ async updateBalance(...) {
 - Add JSDoc comments for complex functions
 - Use TypeScript strict mode (enabled in tsconfig.json)
 - **CRITICAL: ALWAYS use `formatCoins()` for displaying coin amounts**
-  - Import from `src/lib/utils.ts`
+  - Import from `src/utils/utils.ts`
   - NEVER use raw numbers or manual `toLocaleString()` for coin amounts
   - This ensures consistent formatting with commas and coin emoji across all views
   - Example: `formatCoins(1000)` → `🪙 1,000`
 
+### File Naming Conventions
+
+**We follow Sapphire Framework conventions:**
+
+| Category | Convention | Reason | Example |
+|----------|------------|--------|---------|
+| **Services** | PascalCase | Manually imported and instantiated | `BlackjackService.ts`, `DeckService.ts` |
+| **Commands** | kebab-case | Named after the slash command | `ride-the-bus.ts`, `my-wallet.ts` |
+| **Listeners** | camelCase | Named after Discord.js event | `voiceStateUpdate.ts`, `guildCreate.ts` |
+| **Preconditions** | PascalCase | Descriptive class names | `CasinoChannelOnly.ts` |
+| **Utilities** | kebab-case | Pure functions, not classes | `game-utils.ts`, `utils.ts` |
+| **Tasks/Jobs** | kebab-case | Background scripts | `beers-scheduler.ts` |
+| **Config** | lowercase | Simple config files | `config.ts`, `constants.ts` |
+
+**The distinction:**
+- **Services** = things you manually `import` and instantiate → **PascalCase**
+- **Framework-managed pieces** (commands, listeners) = Sapphire auto-loads these → **match what they handle**
+- **Everything else** = **kebab-case**
+
+Note: Commands, listeners, and preconditions all export classes, but file naming follows what they *represent* (the command name, the event name) rather than the class name.
+
 ## Common Patterns to Follow
 
 ### Creating a new command:
-1. Create file in `src/commands/<commandname>.ts`
+1. Create file in `src/commands/<command-name>.ts` (use kebab-case for multi-word names)
 2. Extend `Command` class
 3. Use `@ApplyOptions` decorator with name, description, preconditions
 4. Implement `registerApplicationCommands()` to define slash command structure
@@ -423,9 +456,11 @@ async updateBalance(...) {
 1. Create GameService in `src/services/<GameName>Service.ts` with game logic
 2. Add game to `GameSource` enum in `constants.ts`
 3. Add game-specific update types to `UpdateType` enum if needed
-4. Create command in `src/commands/<gamename>.ts`
+4. Create command in `src/commands/<game-name>.ts` (use kebab-case)
 5. Use `CasinoChannelOnly` precondition
 6. Use `WalletService` for all balance operations
+7. For card games, use `DeckService` for deck/card management
+8. Use `handleGameTimeoutUI()` from `src/utils/game-utils.ts` for timeout handling
 7. **CRITICAL: Log ALL game transactions (bet_placed, bet_won, bet_lost)**
    ```typescript
    // 1. When bet is placed (deduct from balance)

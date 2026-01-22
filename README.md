@@ -4,7 +4,7 @@ TypeScript casino bot built with Sapphire Framework and PostgreSQL.
 
 ## Features
 
-- **Games**: Blackjack, Slots, Ride the Bus, Roll
+- **Games**: Blackjack, Slots, Ride the Bus, Roulette, Roll
 - **Economy**: Wallets, loans, begging, leaderboards
 - **Statistics**: Balance history graphs, game stats tracking
 - **Progressive Jackpot**: Shared slots jackpot pool
@@ -279,22 +279,26 @@ src/
 ├── index.ts                    # Bot entry point with service initialization
 ├── config.ts                   # Environment config with Zod validation
 ├── constants.ts                # Enums (GameSource, UpdateType)
-├── lib/
+├── lib/                        # Infrastructure (database, logging, types)
 │   ├── database.ts            # PostgreSQL connection pool
 │   ├── logger.ts              # Winston logger configuration
-│   ├── types.ts               # Shared TypeScript types
-│   └── utils.ts               # Utility functions
-├── services/
+│   └── types.ts               # Shared TypeScript types
+├── utils/                      # Shared utilities
+│   ├── utils.ts               # Formatting (formatCoins, formatDuration)
+│   └── game-utils.ts          # Game UI utilities (timeout handling)
+├── tasks/                      # Scheduled background jobs
+│   └── beers-scheduler.ts     # Daily channel renaming
+├── services/                   # Business logic services (PascalCase)
 │   ├── WalletService.ts       # Balance operations
 │   ├── LeaderboardService.ts  # Rankings and richest role
 │   ├── StatsService.ts        # Statistics tracking
+│   ├── DeckService.ts         # Shared card deck management
 │   ├── GuildSettingsService.ts # Per-guild configuration
 │   ├── VoiceTimeService.ts    # Voice channel tracking
 │   └── [GameServices]         # Game logic (Blackjack, Slots, etc.)
-├── commands/                   # Slash commands
-├── listeners/                  # Event listeners (ready, guildCreate, etc.)
-├── interaction-handlers/       # Button/modal handlers
-└── preconditions/             # Command preconditions
+├── commands/                   # Slash commands (kebab-case)
+├── listeners/                  # Event listeners (camelCase, match event names)
+└── preconditions/             # Command preconditions (PascalCase)
 ```
 
 ## Available Commands
@@ -309,7 +313,8 @@ src/
 ### Games
 - `/blackjack [bet]` - Play blackjack (21 card game)
 - `/slots [bet]` - Spin the slots with progressive jackpot
-- `/ridethebus [bet]` - Card color guessing game
+- `/ridethebus [bet]` - Card guessing game (red/black, higher/lower, inside/outside, suit)
+- `/roulette [bet]` - Play American Roulette with multiple bet types
 - `/roll [from] [to]` - Simple dice roll betting
 
 ### Admin

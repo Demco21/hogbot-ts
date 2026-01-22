@@ -13,7 +13,8 @@ import {
 import { Config } from '../config.js';
 import { GameSource, UpdateType, GAME_INTERACTION_TIMEOUT_MINUTES } from '../constants.js';
 import { SlotsService } from '../services/SlotsService.js';
-import { formatCoins } from '../lib/utils.js';
+import { formatCoins } from '../utils/utils.js';
+import { handleGameTimeoutUI } from '../utils/game-utils.js';
 
 @ApplyOptions<Command.Options>({
   name: 'slots',
@@ -325,69 +326,23 @@ export class SlotsCommand extends Command {
         await this.container.gameStateService.finishGame(userId, guildId, GameSource.SLOTS);
 
         if (reason === 'time') {
-          // Log timeout as loss
-          await this.container.walletService.updateBalance(
-            userId,
-            guildId,
-            0,
-            GameSource.SLOTS,
-            UpdateType.BET_LOST,
-            {
-              bet_amount: betAmount,
-              payout_amount: 0,
-              reason: 'timeout',
-            }
-          );
+          // Log timeout as loss (no balance change - bet was already deducted)
+          await this.container.walletService.logTransaction(userId, guildId, GameSource.SLOTS, UpdateType.BET_LOST, {
+            bet_amount: betAmount,
+            payout_amount: 0,
+            reason: 'timeout',
+          });
 
           // Update stats
-          await this.container.statsService.updateGameStats(
-            userId,
-            guildId,
-            GameSource.SLOTS,
-            false, // lost
-            betAmount,
-            0, // no payout
-            {}
-          );
+          await this.container.statsService.updateGameStats(userId, guildId, GameSource.SLOTS, false, betAmount, 0, {});
 
-          try {
-            // Fetch current message to get embeds and components
-            const message = await response.fetch();
-            const embeds = message.embeds;
-            const components = message.components;
-
-            // Disable all buttons
-            const disabledComponents = components.map((row: any) => {
-              const actionRow = new ActionRowBuilder<ButtonBuilder>();
-              row.components.forEach((component: any) => {
-                if (component.type === ComponentType.Button) {
-                  const button = ButtonBuilder.from(component);
-                  button.setDisabled(true);
-                  actionRow.addComponents(button);
-                }
-              });
-              return actionRow;
-            });
-
-            // Update embed footer if embed exists
-            if (embeds.length > 0) {
-              const embed = EmbedBuilder.from(embeds[0]);
-              embed.setFooter({ text: '⏰ Slot machine timed out, thanks for the donation!' });
-
-              await originalInteraction.editReply({
-                embeds: [embed],
-                components: disabledComponents,
-              });
-            } else {
-              await originalInteraction.editReply({
-                components: disabledComponents,
-              });
-            }
-          } catch (error) {
-            this.container.logger.error('Error handling slot timeout:', error);
-            // Fallback to removing components
-            await originalInteraction.editReply({ components: [] }).catch(() => {});
-          }
+          // Update UI with timeout state
+          await handleGameTimeoutUI({
+            interaction: originalInteraction,
+            response,
+            footerText: '⏰ Slot machine timed out, thanks for the donation!',
+            logger: this.container.logger,
+          });
         } else {
           // Remove buttons for other end reasons (completed, etc.)
           await originalInteraction.editReply({ components: [] });

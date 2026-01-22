@@ -370,6 +370,49 @@ export class WalletService {
   }
 
   /**
+   * Log a transaction without changing the balance
+   * Use this for recording game outcomes that don't involve balance changes (e.g., BET_LOST)
+   *
+   * @param userId - Discord user ID
+   * @param guildId - Discord guild ID
+   * @param gameSource - Source of the transaction
+   * @param updateType - Type of update for tracking
+   * @param metadata - Additional data to store with transaction
+   * @returns Current balance (unchanged)
+   */
+  async logTransaction(
+    userId: string,
+    guildId: string,
+    gameSource: GameSource,
+    updateType: UpdateType,
+    metadata: Record<string, any> = {}
+  ): Promise<number> {
+    const client = await pool.connect();
+    try {
+      // Get current balance for the transaction record
+      const balance = await this.getBalance(userId, guildId);
+
+      // Insert transaction record (no balance change)
+      await client.query(
+        `INSERT INTO transactions (user_id, guild_id, amount, balance_after, game_source, update_type, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [userId, guildId, 0, balance, gameSource, updateType, JSON.stringify(metadata)]
+      );
+
+      logger.debug(
+        `Transaction logged: ${userId} in guild ${guildId} [${gameSource}:${updateType}] (no balance change)`
+      );
+
+      return balance;
+    } catch (error) {
+      logger.error(`Failed to log transaction for ${userId} in guild ${guildId}:`, error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Transfer coins from one user to another (for loan command)
    * Atomically deducts from sender and adds to receiver within the same guild
    *
