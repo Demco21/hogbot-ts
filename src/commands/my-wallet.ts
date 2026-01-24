@@ -2,6 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
+import { EMBED_COLORS } from '../constants.js';
 import { formatCoins } from '../utils/utils.js';
 
 /**
@@ -40,7 +41,7 @@ export class MyWalletCommand extends Command {
 
       // Create embed response
       const embed = new EmbedBuilder()
-        .setColor(0x00ff00)
+        .setColor(EMBED_COLORS.SUCCESS)
         .setTitle('💰 Your Wallet')
         .setDescription(`**Balance:** ${formatCoins(balance)}`)
         .setFooter({ text: `User ID: ${userId}` })

@@ -2,6 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
+import { EMBED_COLORS } from '../constants.js';
 import { formatCoins } from '../utils/utils.js';
 
 /**
@@ -92,7 +93,7 @@ export class LeaderboardCommand extends Command {
 
       // Create embed
       const embed = new EmbedBuilder()
-        .setColor(0xffd700)
+        .setColor(EMBED_COLORS.GOLD)
         .setTitle('🏆 Leaderboard - Top 10 Richest Hogs')
         .setDescription(description)
         .setFooter({ text: 'Keep gambling to climb the ranks!' })

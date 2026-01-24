@@ -120,3 +120,26 @@ export const STATS_CONFIG = {
   HISTORY_MIN: 2, // Minimum rounds allowed
   HISTORY_MAX: 1000, // Maximum rounds allowed
 } as const;
+
+/**
+ * Standard embed colors used across the bot
+ */
+export const EMBED_COLORS = {
+  // Discord brand color (blurple)
+  DEFAULT: 0x5865f2,
+
+  // Game outcomes
+  SUCCESS: 0x00ff00, // Green - wins, positive results
+  ERROR: 0xff0000, // Red - losses, errors
+  WARNING: 0xffa500, // Orange - warnings
+  NEUTRAL: 0x808080, // Grey - cancelled, neutral states
+
+  // Special colors
+  GOLD: 0xffd700, // Gold - leaderboard, achievements
+  INFO: 0x0099ff, // Blue - informational
+  IN_PROGRESS: 0xdaa520, // Goldenrod - game in progress
+  PUSH: 0xd3d3d3, // Light grey - ties/pushes
+
+  // Game-specific defaults
+  ROULETTE: 0x228b22, // Forest green - roulette table
+} as const;

@@ -2,6 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
+import { EMBED_COLORS } from '../constants.js';
 import { formatDuration } from '../utils/utils.js';
 
 /**
@@ -103,7 +104,7 @@ export class VoiceTimeCommand extends Command {
 
     // Build embed
     const embed = new EmbedBuilder()
-      .setColor(0x5865f2) // Discord blurple
+      .setColor(EMBED_COLORS.DEFAULT)
       .setTitle(`🎙️ Voice Time Stats`)
       .setDescription(`**User:** <@${userId}>`)
       .addFields(
@@ -187,7 +188,7 @@ export class VoiceTimeCommand extends Command {
 
     const periodLabel = period === 'week' ? 'Weekly (Last 7 Days)' : 'All-Time';
     const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
+      .setColor(EMBED_COLORS.DEFAULT)
       .setTitle(`🎙️ Voice Time Leaderboard - ${periodLabel}`)
       .setDescription(description)
       .setFooter({ text: 'Excludes time spent in AFK channel • Includes active sessions' })

@@ -2,6 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
+import { EMBED_COLORS } from '../constants.js';
 
 @ApplyOptions<Command.Options>({
   name: 'roll',
@@ -67,7 +68,7 @@ export class RollCommand extends Command {
 
       // Create success embed
       const embed = new EmbedBuilder()
-        .setColor(0x00ff00)
+        .setColor(EMBED_COLORS.SUCCESS)
         .setTitle(`🎲 Roll From ${fromValue} to ${toValue}`)
         .setDescription(
           `${interaction.user} rolled a **${roll}**!`

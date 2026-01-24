@@ -2,7 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
-import { CASINO_CONFIG } from '../constants.js';
+import { CASINO_CONFIG, EMBED_COLORS } from '../constants.js';
 import { pool } from '../lib/database.js';
 import { formatCoins } from '../utils/utils.js';
 
@@ -138,7 +138,7 @@ export class LoanCommand extends Command {
         // Notify recipient via DM
         try {
           const dmEmbed = new EmbedBuilder()
-            .setColor(0x00ff00)
+            .setColor(EMBED_COLORS.SUCCESS)
             .setTitle('💰 You Received a Loan!')
             .setDescription(
               `${interaction.user.username} sent you **${formatCoins(amount)}**`
@@ -159,7 +159,7 @@ export class LoanCommand extends Command {
 
         // Create success embed
         const embed = new EmbedBuilder()
-          .setColor(0x00ff00)
+          .setColor(EMBED_COLORS.SUCCESS)
           .setTitle('💸 Loan Sent')
           .setDescription(
             `${interaction.user.username} sent **${formatCoins(amount)}** to ${recipient.username}`

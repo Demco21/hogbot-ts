@@ -5,7 +5,7 @@ import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import { Chart, registerables } from 'chart.js';
 import { registerFont } from 'canvas';
 import { Config } from '../config.js';
-import { GameSource, STATS_CONFIG } from '../constants.js';
+import { GameSource, STATS_CONFIG, EMBED_COLORS } from '../constants.js';
 import { formatCoins } from '../utils/utils.js';
 import { existsSync } from 'fs';
 
@@ -81,7 +81,8 @@ export class StatsCommand extends Command {
                 { name: '🎰 Slots', value: GameSource.SLOTS },
                 { name: '🚌 Ride the Bus', value: GameSource.RIDE_THE_BUS },
                 { name: '🎲 Cee-Lo', value: GameSource.CEELO },
-                { name: '🃏 Blackjack', value: GameSource.BLACKJACK }
+                { name: '🃏 Blackjack', value: GameSource.BLACKJACK },
+                { name: '🎱 Roulette', value: GameSource.ROULETTE }
               )
           )
           .addIntegerOption((option) =>
@@ -135,7 +136,7 @@ export class StatsCommand extends Command {
       // Build embed with stats
       const embed = new EmbedBuilder()
         .setTitle(`📈 ${username}'s Hog Coin Stats`)
-        .setColor(0x00ff00)
+        .setColor(EMBED_COLORS.SUCCESS)
         .setImage('attachment://stats.png');
 
       // Add stat summary
@@ -144,10 +145,12 @@ export class StatsCommand extends Command {
         embed.addFields({ name: '📊 Stat Summary', value: summaryValue, inline: false });
       }
 
-      // Add per-game stats (filtered by selected game if specified)
-      const gameFields = await this.buildGameFields(userId, guildId, selectedGame);
-      for (const field of gameFields) {
-        embed.addFields(field);
+      // Add per-game stats only when a specific game is selected
+      if (selectedGame) {
+        const gameFields = await this.buildGameFields(userId, guildId, selectedGame);
+        for (const field of gameFields) {
+          embed.addFields(field);
+        }
       }
 
       await interaction.editReply({
@@ -309,8 +312,8 @@ export class StatsCommand extends Command {
     const gameStats = await this.container.statsService.getAllGameStats(userId, guildId);
     const fields: Array<{ name: string; value: string; inline: boolean }> = [];
 
-    // Order: slots, ridethebus, ceelo, blackjack
-    const gameOrder = [GameSource.SLOTS, GameSource.RIDE_THE_BUS, GameSource.CEELO, GameSource.BLACKJACK];
+    // Order: slots, ridethebus, ceelo, blackjack, roulette
+    const gameOrder = [GameSource.SLOTS, GameSource.RIDE_THE_BUS, GameSource.CEELO, GameSource.BLACKJACK, GameSource.ROULETTE];
 
     // Filter games if a specific game is selected
     const gamesToShow = selectedGame ? [selectedGame] : gameOrder;
@@ -366,6 +369,24 @@ export class StatsCommand extends Command {
             valueLines.push(`Blackjacks Won: **${blackjackWins.toLocaleString('en-US')}**`);
           }
         }
+
+        if (gameSource === GameSource.ROULETTE && stat.extra_stats) {
+          // Wheel distribution
+          const wheelStats = this.getRouletteWheelStats(stat.extra_stats);
+          valueLines.push(wheelStats);
+
+          // Straight number wins
+          const straightWins = (stat.extra_stats.straight_wins as number) || 0;
+          if (straightWins > 0) {
+            valueLines.push(`Straight Wins (35:1): **${straightWins.toLocaleString('en-US')}**`);
+          }
+
+          // Bet win rates
+          const betStats = this.getRouletteBetStats(stat.extra_stats);
+          for (const line of betStats) {
+            valueLines.push(line);
+          }
+        }
       }
 
       let value = valueLines.join('\n').trim();
@@ -406,6 +427,71 @@ export class StatsCommand extends Command {
     const blackPct = ((black / total) * 100).toFixed(1);
 
     return `Rd 1 Color: R: **${red.toLocaleString('en-US')}** (${redPct}%) | B: **${black.toLocaleString('en-US')}** (${blackPct}%)`;
+  }
+
+  /**
+   * Get roulette wheel distribution stats from extra_stats
+   */
+  private getRouletteWheelStats(extraStats: Record<string, any>): string {
+    const red = (extraStats.wheel_red as number) || 0;
+    const black = (extraStats.wheel_black as number) || 0;
+    const green = (extraStats.wheel_green as number) || 0;
+    const total = red + black + green;
+
+    if (total === 0) return 'Wheel: _no data yet_';
+
+    const redPct = ((red / total) * 100).toFixed(1);
+    const blackPct = ((black / total) * 100).toFixed(1);
+    const greenPct = ((green / total) * 100).toFixed(1);
+
+    return `Wheel: 🔴 **${red}** (${redPct}%) | ⚫ **${black}** (${blackPct}%) | 🟢 **${green}** (${greenPct}%)`;
+  }
+
+  /**
+   * Get roulette bet-specific win/loss stats from extra_stats
+   */
+  private getRouletteBetStats(extraStats: Record<string, any>): string[] {
+    const lines: string[] = [];
+
+    // Red/Black bets
+    const redWins = (extraStats.bet_red_wins as number) || 0;
+    const redLosses = (extraStats.bet_red_losses as number) || 0;
+    const blackWins = (extraStats.bet_black_wins as number) || 0;
+    const blackLosses = (extraStats.bet_black_losses as number) || 0;
+
+    if (redWins + redLosses > 0 || blackWins + blackLosses > 0) {
+      lines.push(`↳ Red/Black: ${this.formatWinLossLine(redWins + blackWins, redLosses + blackLosses)}`);
+    }
+
+    // Odd/Even bets
+    const oddWins = (extraStats.bet_odd_wins as number) || 0;
+    const oddLosses = (extraStats.bet_odd_losses as number) || 0;
+    const evenWins = (extraStats.bet_even_wins as number) || 0;
+    const evenLosses = (extraStats.bet_even_losses as number) || 0;
+
+    if (oddWins + oddLosses > 0 || evenWins + evenLosses > 0) {
+      lines.push(`↳ Odd/Even: ${this.formatWinLossLine(oddWins + evenWins, oddLosses + evenLosses)}`);
+    }
+
+    // High/Low bets
+    const highWins = (extraStats.bet_high_wins as number) || 0;
+    const highLosses = (extraStats.bet_high_losses as number) || 0;
+    const lowWins = (extraStats.bet_low_wins as number) || 0;
+    const lowLosses = (extraStats.bet_low_losses as number) || 0;
+
+    if (highWins + highLosses > 0 || lowWins + lowLosses > 0) {
+      lines.push(`↳ High/Low: ${this.formatWinLossLine(highWins + lowWins, highLosses + lowLosses)}`);
+    }
+
+    // Straight bets
+    const straightWins = (extraStats.bet_straight_wins as number) || 0;
+    const straightLosses = (extraStats.bet_straight_losses as number) || 0;
+
+    if (straightWins + straightLosses > 0) {
+      lines.push(`↳ Straight #: ${this.formatWinLossLine(straightWins, straightLosses)}`);
+    }
+
+    return lines;
   }
 
   /**

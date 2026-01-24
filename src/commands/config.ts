@@ -11,6 +11,7 @@ import {
   ComponentType,
   MessageFlags,
 } from 'discord.js';
+import { EMBED_COLORS } from '../constants.js';
 
 @ApplyOptions<Command.Options>({
   name: 'config',
@@ -146,7 +147,7 @@ export class ConfigCommand extends Command {
     const beersTimezone = settings.beersTimezone || 'America/New_York';
 
     return new EmbedBuilder()
-      .setColor(0x0099ff)
+      .setColor(EMBED_COLORS.INFO)
       .setTitle(`🎰 HogBot Configuration - ${guildName}`)
       .setDescription('Configure bot settings for your server using the buttons below.')
       .addFields(

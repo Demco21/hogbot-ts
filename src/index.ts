@@ -10,6 +10,8 @@ import { LeaderboardService } from './services/LeaderboardService.js';
 import { StatsService } from './services/StatsService.js';
 import { BlackjackService } from './services/BlackjackService.js';
 import { RideTheBusService } from './services/RideTheBusService.js';
+import { SlotsService } from './services/SlotsService.js';
+import { RouletteService } from './services/RouletteService.js';
 import { GameStateService } from './services/GameStateService.js';
 import { GuildSettingsService } from './services/GuildSettingsService.js';
 import { VoiceTimeService } from './services/VoiceTimeService.js';
@@ -27,6 +29,8 @@ declare module '@sapphire/pieces' {
     statsService: StatsService;
     blackjackService: BlackjackService;
     rideTheBusService: RideTheBusService;
+    slotsService: SlotsService;
+    rouletteService: RouletteService;
     gameStateService: GameStateService;
     voiceTimeService: VoiceTimeService;
   }
@@ -74,6 +78,16 @@ class HogBotClient extends SapphireClient {
       container.gameStateService
     );
     container.rideTheBusService = new RideTheBusService(
+      container.walletService,
+      container.statsService,
+      container.gameStateService
+    );
+    container.slotsService = new SlotsService(
+      container.walletService,
+      container.statsService,
+      container.gameStateService
+    );
+    container.rouletteService = new RouletteService(
       container.walletService,
       container.statsService,
       container.gameStateService

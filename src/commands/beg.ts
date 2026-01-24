@@ -2,7 +2,7 @@ import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
-import { CASINO_CONFIG, GAME_BET_LIMITS } from '../constants.js';
+import { CASINO_CONFIG, GAME_BET_LIMITS, EMBED_COLORS } from '../constants.js';
 import { GameSource, UpdateType } from '../constants.js';
 import { formatCoins } from '../utils/utils.js';
 
@@ -91,7 +91,7 @@ export class BegCommand extends Command {
 
       // Create success embed
       const embed = new EmbedBuilder()
-        .setColor(0x00ff00)
+        .setColor(EMBED_COLORS.SUCCESS)
         .setDescription(randomMessage);
 
       await interaction.editReply({ embeds: [embed] });
