@@ -79,7 +79,7 @@ const FOOTER_BET_INFO = 'Straight pays 35:1';
 const FOOTER_PLAY_AGAIN = 'Use /roulette to play again!';
 
 /** Max bets per spin */
-const MAX_BETS_PER_SPIN = 10;
+const MAX_BETS_PER_SPIN = 30;
 
 /** Bet limits */
 const MIN_BET = GAME_BET_LIMITS.ROULETTE.MIN;
@@ -289,7 +289,7 @@ class RouletteGame {
   private getBetTypeName(betType: RouletteBetType, selection?: number | '00'): string {
     switch (betType) {
       case RouletteBetType.STRAIGHT:
-        return selection !== undefined ? `#${selection}` : 'Straight';
+        return selection !== undefined ? `${selection}` : 'Straight';
       case RouletteBetType.RED:
         return 'Red';
       case RouletteBetType.BLACK:
@@ -866,7 +866,7 @@ class RouletteGame {
         .setColor(COLOR_DEFAULT)
         .setDescription(
           `**Player:** ${this.player.toString()}\n\n` +
-            `**The Board:**\n${boardDisplay}\n\n` +
+            `${boardDisplay}\n\n` +
             `**Active Bets:** ${betList}\n\n` +
             spinStatus
         )
@@ -901,7 +901,7 @@ class RouletteGame {
       .setColor(COLOR_DEFAULT)
       .setDescription(
         `**Player:** ${this.player.toString()}\n\n` +
-          `**The Board:**\n${boardDisplay}\n\n` +
+          `${boardDisplay}\n\n` +
           `**Active Bets:** ${betList}`
       )
       .addFields(
@@ -931,7 +931,7 @@ class RouletteGame {
       .setColor(color)
       .setDescription(
         `**Player:** ${this.player.toString()}\n\n` +
-          `**The Board:**\n${boardDisplay}\n\n` +
+          `${boardDisplay}\n\n` +
           `**Active Bets:** ${betList}\n\n` +
           `The ball lands on... ${winningNumber}`
       )
@@ -1038,23 +1038,24 @@ class RouletteGame {
     const canAddMore = this.state.bets.length < MAX_BETS_PER_SPIN;
 
     // Row 1: Page navigation tabs
+    // All tabs are blue (Primary), selected tab has arrow indicator
     const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(BTN_ID_PAGE_GREEN)
-        .setLabel(BTN_LABEL_GREEN)
-        .setStyle(page === 'green' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        .setLabel(page === 'green' ? `▸ ${BTN_LABEL_GREEN}` : BTN_LABEL_GREEN)
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(BTN_ID_PAGE_1_12)
-        .setLabel(BTN_LABEL_1_12)
-        .setStyle(page === '1-12' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        .setLabel(page === '1-12' ? `▸ ${BTN_LABEL_1_12}` : BTN_LABEL_1_12)
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(BTN_ID_PAGE_13_24)
-        .setLabel(BTN_LABEL_13_24)
-        .setStyle(page === '13-24' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        .setLabel(page === '13-24' ? `▸ ${BTN_LABEL_13_24}` : BTN_LABEL_13_24)
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(BTN_ID_PAGE_25_36)
-        .setLabel(BTN_LABEL_25_36)
-        .setStyle(page === '25-36' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        .setLabel(page === '25-36' ? `▸ ${BTN_LABEL_25_36}` : BTN_LABEL_25_36)
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(BTN_ID_BACK)
         .setLabel(BTN_LABEL_BACK)
