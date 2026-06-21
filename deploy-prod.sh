@@ -13,7 +13,7 @@ mkdir -p ./data
 chmod 755 ./data
 # Change ownership to UID 1000 (node user in container)
 sudo chown -R 1000:1000 ./data
-echo "✓ Data directory ready"
+echo "✓ Data directory ready (hogbot.db lives here and survives rebuilds)"
 
 # 2. Stop existing container
 echo "🛑 Stopping existing container..."
@@ -52,3 +52,5 @@ echo "  View logs:        sudo docker logs hogbot -f"
 echo "  View file logs:   tail -f ./data/hogbot-$(date +%Y-%m-%d).log"
 echo "  Container status: sudo docker ps | grep hogbot"
 echo "  Restart:          sudo docker-compose -f docker-compose.prod.yml restart"
+echo "  Query database:   sqlite3 ./data/hogbot.db"
+echo "  Backup database:  cp ./data/hogbot.db ./data/hogbot.db.bak"
