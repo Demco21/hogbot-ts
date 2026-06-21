@@ -1,3 +1,9 @@
+echo ""
+echo "Useful commands:"
+echo "  View logs:        sudo docker logs hogbot -f"
+echo "  View file logs:   tail -f ./data/hogbot-$(date +%Y-%m-%d).log"
+echo "  Container status: sudo docker ps | grep hogbot"
+
 #!/bin/bash
 # Production deployment script for HogBot
 # Run this on your EC2 instance to deploy/update the bot
