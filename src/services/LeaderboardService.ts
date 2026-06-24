@@ -134,6 +134,17 @@ export class LeaderboardService {
           await previousMember.roles.remove(role);
           logger.info(`Removed richest role from ${previousUserId} in guild ${guildId}`);
         }
+      } else if (!previousUserId) {
+        // Bot restarted — in-memory state is gone. Strip the role from anyone who isn't the new richest.
+        const membersWithRole = role.members;
+        for (const [memberId, member] of membersWithRole) {
+          if (memberId !== newUserId) {
+            await member.roles.remove(role).catch((err) => {
+              logger.warn(`Failed to remove stale richest role from ${memberId} in guild ${guildId}:`, err.message);
+            });
+            logger.info(`Removed stale richest role from ${memberId} in guild ${guildId}`);
+          }
+        }
       }
 
       const newMember = await guild.members.fetch(newUserId).catch((err) => {
