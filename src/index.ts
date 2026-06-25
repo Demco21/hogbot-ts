@@ -66,8 +66,8 @@ class HogBotClient extends SapphireClient {
   public override async login(token?: string): Promise<string> {
     // Initialize services and attach to container before login
     container.guildSettingsService = new GuildSettingsService();
-    container.walletService = new WalletService();
     container.leaderboardService = new LeaderboardService();
+    container.walletService = new WalletService(container.leaderboardService);
     container.statsService = new StatsService();
     container.gameStateService = new GameStateService();
     container.voiceTimeService = new VoiceTimeService();

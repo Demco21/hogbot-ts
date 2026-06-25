@@ -2,6 +2,7 @@ import { db } from '../lib/database.js';
 import { User } from '../lib/types.js';
 import { GameSource, UpdateType, CASINO_CONFIG } from '../constants.js';
 import { safeLogger as logger } from '../lib/safe-logger.js';
+import type { LeaderboardService } from './LeaderboardService.js';
 
 interface UserRow {
   user_id: string;
@@ -22,6 +23,12 @@ interface UserRow {
  * - Users have separate balances per guild (composite key: user_id + guild_id)
  */
 export class WalletService {
+  private readonly leaderboardService: LeaderboardService;
+
+  constructor(leaderboardService: LeaderboardService) {
+    this.leaderboardService = leaderboardService;
+  }
+
   private parseUserRow(row: UserRow): User {
     return {
       user_id: row.user_id,
@@ -158,8 +165,7 @@ export class WalletService {
     );
 
     if (this.isResolvedUpdateType(updateType)) {
-      const { container } = await import('@sapphire/framework');
-      container.leaderboardService
+      this.leaderboardService
         .updateRichestMemberForGuild(guildId)
         .catch((err: Error) => logger.error('Richest member update failed:', err));
     }
@@ -223,6 +229,12 @@ export class WalletService {
     logger.debug(
       `Transaction logged: ${userId} in guild ${guildId} [${gameSource}:${updateType}] (no balance change)`
     );
+
+    if (this.isResolvedUpdateType(updateType)) {
+      this.leaderboardService
+        .updateRichestMemberForGuild(guildId)
+        .catch((err: Error) => logger.error('Richest member update failed:', err));
+    }
 
     return balance;
   }
