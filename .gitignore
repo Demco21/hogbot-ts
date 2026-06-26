@@ -28,6 +28,18 @@ Thumbs.db
 data/
 !data/.gitkeep
 
+# SQLite database files
+# The live database and WAL-mode journal files must never be committed
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# SQLite backup files
+*.db.bak
+
 # Claude Code
 .claude/
 

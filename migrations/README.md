@@ -1,214 +1,72 @@
-# Database Migrations
+# Database Schema Reference
 
-This directory contains PostgreSQL schema migrations for the Hogbot casino TypeScript bot.
+This directory contains the SQLite schema for HogBot as a readable reference.
 
-## Getting Started
+> **Note:** You do not need to run these files manually. The bot applies the schema automatically on startup via `src/lib/database.ts`. The database file (`hogbot.db`) is created on first run with no setup required.
 
-### 1. Install Docker Desktop
+## Files
 
-If you don't have Docker installed:
-- **Windows/Mac**: Download from https://www.docker.com/products/docker-desktop
-- **Linux**: Follow instructions at https://docs.docker.com/engine/install/
+- `001_initial_schema.sql` — Full SQLite schema with all tables, indexes, and comments
 
-### 2. Start PostgreSQL
+## Schema Overview
 
-From the Hogbot directory, run:
+| Table | Purpose |
+|---|---|
+| `guild_settings` | Per-server configuration (casino channel, richest role, beers channel) |
+| `users` | Per-guild wallets with balance and beg count |
+| `transactions` | Immutable audit log for all wallet operations; source of truth for balance graphs |
+| `game_stats` | Denormalized per-game win/loss/streak statistics |
+| `progressive_jackpot` | Per-guild slots jackpot pool |
+| `loan_rate_limits` | Rate limiting for the `/loan` command (3 per hour) |
+| `game_sessions` | Active game tracking for crash recovery and concurrent game prevention |
+| `game_crash_history` | Audit log of crashed games with refund details |
+| `voice_sessions` | Currently active voice channel sessions |
+| `voice_time_history` | Completed voice sessions (historical record) |
+| `voice_time_aggregates` | Denormalized all-time and weekly voice totals for fast leaderboard queries |
 
+## Querying the Database
+
+**CLI (on the EC2 instance):**
 ```bash
-docker-compose up -d
+sqlite3 hogbot.db
+sqlite3 hogbot.db "SELECT * FROM users ORDER BY balance DESC LIMIT 10;"
 ```
 
-This will:
-- Download PostgreSQL 16 (if not already downloaded)
-- Create a database named `hogbot`
-- Create a user `hogbot` with password `hogbot_dev_password`
-- Automatically run all `.sql` files in this directory
-- Start pgAdmin (optional database management UI)
-
-### 3. Verify Connection
-
-Check that PostgreSQL is running:
-
-```bash
-docker-compose ps
-```
-
-You should see:
-```
-NAME                IMAGE                  STATUS
-hogbot-postgres     postgres:16-alpine     Up
-hogbot-pgadmin      dpage/pgadmin4:latest  Up
-```
-
-### 4. Connect to Database
-
-**Via command line:**
-```bash
-docker exec -it hogbot-postgres psql -U hogbot -d hogbot
-```
-
-**Via pgAdmin (Web UI):**
-1. Open http://localhost:5050 in your browser
-2. Login with:
-   - Email: `admin@hogbot.local`
-   - Password: `admin`
-3. Add server:
-   - Host: `postgres` (Docker service name)
-   - Port: `5432`
-   - Database: `hogbot`
-   - Username: `hogbot`
-   - Password: `hogbot_dev_password`
-
-### 5. Test the Schema
-
-Run some test queries:
-
+**Useful queries:**
 ```sql
--- Check tables were created
-\dt
+-- View all users sorted by balance
+SELECT user_id, username, balance FROM users ORDER BY balance DESC;
 
--- Check the initial jackpot
-SELECT * FROM progressive_jackpot;
+-- Recent transactions
+SELECT * FROM transactions ORDER BY created_at DESC LIMIT 20;
 
--- Create a test user
-INSERT INTO users (user_id, username, balance)
-VALUES (123456789, 'TestUser', 10000);
+-- Balance history for a user (used for stats graph)
+SELECT balance_after, created_at FROM transactions
+WHERE user_id = '123456789' AND update_type NOT IN ('bet_placed', 'round_won')
+ORDER BY created_at ASC;
 
--- Check the user was created
-SELECT * FROM users;
+-- Game stats per user
+SELECT user_id, game_source, played, wins, losses FROM game_stats ORDER BY played DESC;
 
--- Test the wallet update function
-SELECT * FROM update_wallet_with_history(
-    123456789,
-    -1000,
-    'blackjack',
-    'bet_placed',
-    '{"bet_amount": 1000}'::jsonb
-);
+-- Current jackpot per guild
+SELECT guild_id, amount, last_winner_id, last_won_at FROM progressive_jackpot;
 
--- View the transaction
-SELECT * FROM transactions;
+-- Active game sessions
+SELECT * FROM game_sessions WHERE status = 'active';
 
--- View balance history
-SELECT * FROM balance_history;
+-- Voice time leaderboard
+SELECT user_id, total_seconds, weekly_seconds FROM voice_time_aggregates
+ORDER BY total_seconds DESC LIMIT 10;
 ```
 
-## Useful Commands
+## Backups
 
-### Start database
-```bash
-docker-compose up -d
-```
-
-### Stop database (keeps data)
-```bash
-docker-compose stop
-```
-
-### Stop and remove containers (keeps data in volumes)
-```bash
-docker-compose down
-```
-
-### Stop and DELETE ALL DATA (⚠️ Warning!)
-```bash
-docker-compose down -v
-```
-
-### View logs
-```bash
-docker-compose logs -f postgres
-```
-
-### Connect to database
-```bash
-docker exec -it hogbot-postgres psql -U hogbot -d hogbot
-```
-
-### Backup database
-```bash
-docker exec -t hogbot-postgres pg_dump -U hogbot hogbot > backup.sql
-```
-
-### Restore database
-```bash
-docker exec -i hogbot-postgres psql -U hogbot hogbot < backup.sql
-```
-
-## Connection String
-
-For your TypeScript application, use:
-
-```
-postgresql://hogbot:hogbot_dev_password@localhost:5432/hogbot
-```
-
-Or as separate environment variables:
-
-```env
-DATABASE_HOST=localhost
-DATABASE_PORT=5432
-DATABASE_NAME=hogbot
-DATABASE_USER=hogbot
-DATABASE_PASSWORD=hogbot_dev_password
-```
-
-## Migration Files
-
-Migrations are run automatically in alphabetical order when the container is first created.
-
-- `001_initial_schema.sql` - Creates all tables, indexes, functions, and views
-
-### Adding New Migrations
-
-To add a new migration:
-
-1. Create a new file: `002_description.sql`
-2. Stop the database: `docker-compose down -v` (⚠️ deletes data)
-3. Start the database: `docker-compose up -d`
-
-Alternatively, run migrations manually without deleting data:
+The entire database is a single file. Back it up with a simple copy:
 
 ```bash
-docker exec -i hogbot-postgres psql -U hogbot -d hogbot < migrations/002_description.sql
+# Manual
+cp hogbot.db hogbot.db.bak
+
+# Automated hourly backup to S3
+echo "0 * * * * cp /path/to/hogbot.db /path/to/backups/hogbot-\$(date +\%Y\%m\%d-\%H).db" | crontab -
 ```
-
-## Troubleshooting
-
-### Port 5432 already in use
-
-If you have PostgreSQL already installed locally:
-
-**Option 1**: Stop local PostgreSQL
-- Windows: Stop "PostgreSQL" service
-- Mac: `brew services stop postgresql`
-- Linux: `sudo systemctl stop postgresql`
-
-**Option 2**: Change port in `docker-compose.yml`:
-```yaml
-ports:
-  - "5433:5432"  # Use 5433 instead
-```
-
-Then update connection string to use port `5433`.
-
-### Container won't start
-
-Check logs:
-```bash
-docker-compose logs postgres
-```
-
-### pgAdmin can't connect
-
-Make sure to use `postgres` as the hostname (not `localhost`) when adding the server in pgAdmin. This is the Docker service name.
-
-## Next Steps
-
-After verifying the database works:
-
-1. Create your TypeScript bot project
-2. Install `pg` package: `npm install pg @types/pg`
-3. Create a database connection pool
-4. Implement WalletService using the `update_wallet_with_history()` function
-5. Run the JSON migration script to import existing data

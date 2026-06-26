@@ -1,136 +1,221 @@
-import pg from 'pg';
-import { Config } from '../config.js';
+import Database, { type Database as DatabaseType } from 'better-sqlite3';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { safeLogger as logger } from './safe-logger.js';
 
-const { Pool, types } = pg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * CRITICAL: Do NOT parse BIGINT as numbers globally!
- *
- * Discord snowflake IDs (guild_id, user_id, channel_id, role_id) exceed
- * Number.MAX_SAFE_INTEGER (9,007,199,254,740,991), causing precision loss.
- *
- * Example bug: Channel ID 1262202594596622458 becomes 1262202594596622300
- *
- * Strategy:
- * - Keep BIGINTs as strings by default (pg's default behavior)
- * - Parse to numbers ONLY for currency amounts using parseBigInt() helper
- * - Always use strings for Discord IDs
- */
-// DO NOT set a global BIGINT parser!
+const DB_PATH = process.env.DATABASE_FILE ?? path.join(__dirname, '../../hogbot.db');
 
-/**
- * Helper function to safely parse BIGINT currency values from database
- * Use this for balance, amount, payout, etc. - NOT for Discord IDs!
- *
- * @param value - BIGINT value from database (string or number)
- * @returns Parsed number value
- */
-export function parseBigInt(value: string | number | null | undefined): number {
-  if (value === null || value === undefined) {
-    return 0;
-  }
-  if (typeof value === 'number') {
-    return value;
-  }
-  const parsed = parseInt(value, 10);
-  if (isNaN(parsed)) {
-    logger.warn(`Failed to parse BIGINT value: ${value}`);
-    return 0;
-  }
-  return parsed;
-}
+export const db: DatabaseType = new Database(DB_PATH);
 
-/**
- * PostgreSQL connection pool
- */
-export const pool = new Pool({
-  host: Config.database.host,
-  port: Config.database.port,
-  database: Config.database.database,
-  user: Config.database.user,
-  password: Config.database.password,
-  max: 20, // Maximum connections in pool
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-  // SSL configuration for AWS RDS
-  // For production: Use SSL encryption without strict certificate verification
-  // AWS RDS uses self-signed certificates that Node.js in Docker doesn't trust by default
-  // For development (localhost): Disable SSL
-  ssl:
-    process.env.NODE_ENV === 'production'
-      ? {
-          rejectUnauthorized: false, // Skip cert verification but still encrypt connection
-        }
-      : false,
-});
+// WAL mode: concurrent reads don't block writes, much better performance
+db.pragma('journal_mode = WAL');
+// Foreign key constraints are disabled by default in SQLite
+db.pragma('foreign_keys = ON');
 
-/**
- * Initialize database connection and verify schema
- */
+const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id TEXT PRIMARY KEY,
+    richest_member_role_id TEXT,
+    casino_channel_id TEXT,
+    beers_channel_id TEXT,
+    beers_timezone TEXT DEFAULT 'America/New_York',
+    guild_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
+    username TEXT NOT NULL DEFAULT 'Unknown',
+    balance INTEGER NOT NULL DEFAULT 10000,
+    high_water_balance INTEGER NOT NULL DEFAULT 10000,
+    beg_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, guild_id),
+    CHECK (balance >= 0)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_users_guild_balance ON users(guild_id, balance DESC);
+  CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id);
+
+  CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL,
+    game_source TEXT NOT NULL,
+    update_type TEXT NOT NULL,
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id, guild_id) REFERENCES users(user_id, guild_id) ON DELETE CASCADE,
+    FOREIGN KEY (guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_transactions_user_guild ON transactions(user_id, guild_id);
+  CREATE INDEX IF NOT EXISTS idx_transactions_guild ON transactions(guild_id);
+  CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_transactions_game_source ON transactions(game_source);
+  CREATE INDEX IF NOT EXISTS idx_transactions_user_guild_created ON transactions(user_id, guild_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS game_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    game_source TEXT NOT NULL,
+    played INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    current_win_streak INTEGER NOT NULL DEFAULT 0,
+    current_losing_streak INTEGER NOT NULL DEFAULT 0,
+    best_win_streak INTEGER NOT NULL DEFAULT 0,
+    worst_losing_streak INTEGER NOT NULL DEFAULT 0,
+    highest_bet INTEGER NOT NULL DEFAULT 0,
+    highest_payout INTEGER NOT NULL DEFAULT 0,
+    highest_loss INTEGER NOT NULL DEFAULT 0,
+    extra_stats TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, game_source, guild_id),
+    FOREIGN KEY (user_id, guild_id) REFERENCES users(user_id, guild_id) ON DELETE CASCADE,
+    FOREIGN KEY (guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_game_stats_user_guild ON game_stats(user_id, guild_id);
+  CREATE INDEX IF NOT EXISTS idx_game_stats_game_source ON game_stats(game_source);
+  CREATE INDEX IF NOT EXISTS idx_game_stats_guild ON game_stats(guild_id);
+
+  CREATE TABLE IF NOT EXISTS progressive_jackpot (
+    guild_id TEXT PRIMARY KEY REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
+    amount INTEGER NOT NULL DEFAULT 5000000,
+    last_winner_id TEXT,
+    last_won_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS loan_rate_limits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lender_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_loan_rate_limits_lender_guild_created ON loan_rate_limits(lender_id, guild_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS game_sessions (
+    session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    game_source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    bet_amount INTEGER NOT NULL,
+    game_state TEXT NOT NULL DEFAULT '{}',
+    crash_reason TEXT,
+    refund_amount INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, game_source, guild_id),
+    FOREIGN KEY (user_id, guild_id) REFERENCES users(user_id, guild_id) ON DELETE CASCADE,
+    FOREIGN KEY (guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_game_sessions_user_game_guild ON game_sessions(user_id, game_source, guild_id, status);
+
+  CREATE TABLE IF NOT EXISTS game_crash_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    game_source TEXT NOT NULL,
+    bet_amount INTEGER NOT NULL,
+    refund_amount INTEGER NOT NULL,
+    crash_reason TEXT NOT NULL,
+    game_duration_seconds INTEGER NOT NULL,
+    game_state TEXT,
+    game_started_at TEXT NOT NULL,
+    crashed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_crash_history_user_id ON game_crash_history(user_id);
+  CREATE INDEX IF NOT EXISTS idx_crash_history_guild ON game_crash_history(guild_id);
+  CREATE INDEX IF NOT EXISTS idx_crash_history_crashed_at ON game_crash_history(crashed_at DESC);
+
+  CREATE TABLE IF NOT EXISTS voice_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
+    channel_id TEXT NOT NULL,
+    joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, guild_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_voice_sessions_user_guild ON voice_sessions(user_id, guild_id);
+  CREATE INDEX IF NOT EXISTS idx_voice_sessions_joined_at ON voice_sessions(joined_at);
+
+  CREATE TABLE IF NOT EXISTS voice_time_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
+    channel_id TEXT NOT NULL,
+    duration_seconds INTEGER NOT NULL CHECK (duration_seconds >= 0),
+    joined_at TEXT NOT NULL,
+    left_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_voice_time_history_user_guild ON voice_time_history(user_id, guild_id);
+  CREATE INDEX IF NOT EXISTS idx_voice_time_history_left_at ON voice_time_history(left_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_voice_time_history_user_guild_left ON voice_time_history(user_id, guild_id, left_at DESC);
+
+  CREATE TABLE IF NOT EXISTS voice_time_aggregates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
+    total_seconds INTEGER NOT NULL DEFAULT 0,
+    weekly_seconds INTEGER NOT NULL DEFAULT 0,
+    weekly_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, guild_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_voice_time_aggregates_guild_total ON voice_time_aggregates(guild_id, total_seconds DESC);
+  CREATE INDEX IF NOT EXISTS idx_voice_time_aggregates_guild_weekly ON voice_time_aggregates(guild_id, weekly_seconds DESC);
+`;
+
 export async function initializeDatabase(): Promise<void> {
-  const client = await pool.connect();
   try {
-    // Test connection
-    const result = await client.query('SELECT NOW()');
-    logger.info(`✓ Database connected at ${result.rows[0].now}`);
+    db.exec(SCHEMA);
 
-    // Verify tables exist
-    const tables = await client.query(`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-      AND table_type = 'BASE TABLE'
-    `);
+    const tables = (
+      db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all() as { name: string }[]
+    ).map((r) => r.name);
 
-    const requiredTables = [
-      'users',
-      'transactions',
-      'game_stats',
-      'progressive_jackpot',
-      'loan_rate_limits',
-      'game_sessions',
-      'game_crash_history',
-      'voice_sessions',
-      'voice_time_history',
-      'voice_time_aggregates',
-    ];
-
-    const existingTables = tables.rows.map((row) => row.table_name);
-    const missingTables = requiredTables.filter((t) => !existingTables.includes(t));
-
-    if (missingTables.length > 0) {
-      throw new Error(`Missing required tables: ${missingTables.join(', ')}`);
-    }
-
-    logger.info(`✓ All required tables present (${existingTables.length} total)`);
+    logger.info(`✓ Database initialized at ${DB_PATH}`);
+    logger.info(`✓ Tables present: ${tables.join(', ')}`);
   } catch (error) {
     logger.error('Failed to initialize database:', error);
     throw error;
-  } finally {
-    client.release();
   }
 }
 
-/**
- * Gracefully close database connection pool
- */
 export async function closeDatabase(): Promise<void> {
-  await pool.end();
-  logger.info('Database connection pool closed');
+  db.close();
+  logger.info('Database closed');
 }
 
-/**
- * Health check for database connection
- */
-export async function isDatabaseHealthy(): Promise<boolean> {
+export function isDatabaseHealthy(): boolean {
   try {
-    const client = await pool.connect();
-    await client.query('SELECT 1');
-    client.release();
+    db.prepare('SELECT 1').get();
     return true;
-  } catch (error) {
-    logger.error('Database health check failed:', error);
+  } catch {
     return false;
   }
 }

@@ -3,7 +3,6 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
 import { CASINO_CONFIG, EMBED_COLORS } from '../constants.js';
-import { pool } from '../lib/database.js';
 import { formatCoins } from '../utils/utils.js';
 
 /**
@@ -34,10 +33,8 @@ export class LoanCommand extends Command {
               .setRequired(true)
               .setMinValue(1)
           ),
-      // Production: Always register globally for instant multi-guild support
-      // Development: Register to specific guild for instant testing
       process.env.NODE_ENV === 'production'
-        ? {} // Global registration
+        ? {}
         : Config.discord.guildId
           ? { guildIds: [Config.discord.guildId] }
           : {}
@@ -46,7 +43,6 @@ export class LoanCommand extends Command {
 
   public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
     try {
-      // Defer reply immediately to prevent timeout
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const senderId = interaction.user.id;
@@ -55,140 +51,99 @@ export class LoanCommand extends Command {
       const recipient = interaction.options.getUser('user', true);
       const amount = interaction.options.getInteger('amount', true);
 
-      // Ensure guild exists in database with proper name
       await this.container.walletService.ensureGuild(guildId, interaction.guild?.name);
 
-      // Validate amount is positive
       if (amount <= 0) {
         await interaction.editReply({ content: '❌ Amount must be greater than 0' });
         return;
       }
 
-      // Prevent sending to self
       if (senderId === recipient.id) {
         await interaction.editReply({ content: '❌ You cannot send coins to yourself' });
         return;
       }
 
-      // Prevent sending to bots
       if (recipient.bot) {
         await interaction.editReply({ content: '❌ You cannot send coins to bots' });
         return;
       }
 
-      const client = await pool.connect();
+      // Check rate limit
+      const withinLimit = this.container.walletService.checkLoanRateLimit(
+        senderId,
+        guildId,
+        CASINO_CONFIG.LOAN_RATE_LIMIT,
+        CASINO_CONFIG.LOAN_RATE_LIMIT_WINDOW_HOURS
+      );
+
+      if (!withinLimit) {
+        await interaction.editReply({
+          content: `❌ You can only send ${CASINO_CONFIG.LOAN_RATE_LIMIT} loans per hour. Try again later.`,
+        });
+        return;
+      }
+
+      // Ensure both users exist
+      const sender = await this.container.walletService.ensureUser(senderId, guildId, senderUsername);
+      await this.container.walletService.ensureUser(recipient.id, guildId, recipient.username);
+
+      if (sender.balance < amount) {
+        await interaction.editReply({
+          content: `❌ Insufficient balance. You have ${formatCoins(sender.balance)} but tried to send ${formatCoins(amount)}.`,
+        });
+        return;
+      }
+
+      // Record rate limit entry
+      this.container.walletService.recordLoanRateLimit(senderId, guildId);
+      const loansUsed = this.container.walletService.getLoanCount(
+        senderId, guildId, CASINO_CONFIG.LOAN_RATE_LIMIT_WINDOW_HOURS
+      );
+      const loansRemaining = CASINO_CONFIG.LOAN_RATE_LIMIT - loansUsed;
+
+      // Transfer coins
+      const result = await this.container.walletService.transferCoins(
+        senderId,
+        recipient.id,
+        guildId,
+        amount
+      );
+
+      const { senderBalance, receiverBalance } = result;
+
+      // Notify recipient via DM
       try {
-        await client.query('BEGIN');
-
-        // Check rate limit
-        const rateLimitCheck = await client.query(
-          `SELECT COUNT(*) as loan_count
-           FROM loan_rate_limits
-           WHERE lender_id = $1
-           AND guild_id = $2
-           AND created_at > NOW() - INTERVAL '${CASINO_CONFIG.LOAN_RATE_LIMIT_WINDOW_HOURS} hours'`,
-          [senderId, guildId]
-        );
-
-        const loanCount = parseInt(rateLimitCheck.rows[0].loan_count);
-        if (loanCount >= CASINO_CONFIG.LOAN_RATE_LIMIT) {
-          await client.query('ROLLBACK');
-          await interaction.editReply({
-            content: `❌ You can only send ${CASINO_CONFIG.LOAN_RATE_LIMIT} loans per hour. Try again later.`,
-          });
-          return;
-        }
-
-        // Ensure both sender and recipient exist in database with proper usernames
-        const sender = await this.container.walletService.ensureUser(senderId, guildId, senderUsername);
-        const recipientUser = await this.container.walletService.ensureUser(
-          recipient.id,
-          guildId,
-          recipient.username
-        );
-
-        // Check if sender has enough balance
-        if (sender.balance < amount) {
-          await client.query('ROLLBACK');
-          await interaction.editReply({
-            content: `❌ Insufficient balance. You have ${formatCoins(sender.balance)} but tried to send ${formatCoins(amount)}.`,
-          });
-          return;
-        }
-
-        // Record loan in rate limit table first
-        await client.query(
-          'INSERT INTO loan_rate_limits (lender_id, guild_id) VALUES ($1, $2)',
-          [senderId, guildId]
-        );
-
-        await client.query('COMMIT');
-
-        // Transfer coins using WalletService (handles its own transaction)
-        const result = await this.container.walletService.transferCoins(
-          senderId,
-          recipient.id,
-          guildId,
-          amount
-        );
-
-        const senderBalance = result.senderBalance;
-        const recipientBalance = result.receiverBalance;
-
-        // Notify recipient via DM
-        try {
-          const dmEmbed = new EmbedBuilder()
-            .setColor(EMBED_COLORS.SUCCESS)
-            .setTitle('💰 You Received a Loan!')
-            .setDescription(
-              `${interaction.user.username} sent you **${formatCoins(amount)}**`
-            )
-            .addFields({
-              name: 'Your New Balance',
-              value: formatCoins(recipientBalance),
-            })
-            .setTimestamp();
-
-          await recipient.send({ embeds: [dmEmbed] });
-        } catch (dmError) {
-          // Silently fail if DMs are closed - user will see it in their balance
-          this.container.logger.info(
-            `Could not send DM to ${recipient.username} (${recipient.id}) for loan notification`
-          );
-        }
-
-        // Create success embed
-        const embed = new EmbedBuilder()
+        const dmEmbed = new EmbedBuilder()
           .setColor(EMBED_COLORS.SUCCESS)
-          .setTitle('💸 Loan Sent')
-          .setDescription(
-            `${interaction.user.username} sent **${formatCoins(amount)}** to ${recipient.username}`
-          )
-          .addFields(
-            {
-              name: 'Your New Balance',
-              value: formatCoins(senderBalance),
-              inline: true,
-            },
-            {
-              name: `${recipient.username}'s New Balance`,
-              value: formatCoins(recipientBalance),
-              inline: true,
-            },
-            {
-              name: 'Loans Remaining',
-              value: `${CASINO_CONFIG.LOAN_RATE_LIMIT - loanCount - 1}/${CASINO_CONFIG.LOAN_RATE_LIMIT} this hour`,
-            }
-          )
+          .setTitle('💰 You Received a Loan!')
+          .setDescription(`${interaction.user.username} sent you **${formatCoins(amount)}**`)
+          .addFields({ name: 'Your New Balance', value: formatCoins(receiverBalance) })
           .setTimestamp();
 
-        await interaction.editReply({ embeds: [embed] });
-      } catch (dbError) {
-        await client.query('ROLLBACK');
-        throw dbError;
-      } finally {
-        client.release();
+        await recipient.send({ embeds: [dmEmbed] });
+      } catch {
+        this.container.logger.info(
+          `Could not send DM to ${recipient.username} (${recipient.id}) for loan notification`
+        );
       }
+
+      const embed = new EmbedBuilder()
+        .setColor(EMBED_COLORS.SUCCESS)
+        .setTitle('💸 Loan Sent')
+        .setDescription(
+          `${interaction.user.username} sent **${formatCoins(amount)}** to ${recipient.username}`
+        )
+        .addFields(
+          { name: 'Your New Balance', value: formatCoins(senderBalance), inline: true },
+          { name: `${recipient.username}'s New Balance`, value: formatCoins(receiverBalance), inline: true },
+          {
+            name: 'Loans Remaining',
+            value: `${loansRemaining}/${CASINO_CONFIG.LOAN_RATE_LIMIT} this hour`,
+          }
+        )
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
     } catch (error) {
       this.container.logger.error('Error in loan command:', error);
 

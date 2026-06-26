@@ -23,7 +23,7 @@ import { StatsService } from './StatsService.js';
 import { GameStateService } from './GameStateService.js';
 import { safeLogger as logger } from '../lib/safe-logger.js';
 import { formatCoins } from '../utils/utils.js';
-import { pool } from '../lib/database.js';
+import { db } from '../lib/database.js';
 
 /** Embed constants */
 const EMBED_TITLE = '🎰 Hog Pen Slots';
@@ -623,60 +623,40 @@ export class SlotsService {
   // ========== Jackpot Methods ==========
 
   async getJackpot(guildId: string): Promise<number> {
-    const client = await pool.connect();
-    try {
-      const result = await client.query<{ amount: string }>(
-        'SELECT amount FROM progressive_jackpot WHERE guild_id = $1',
-        [guildId]
-      );
+    const row = db.prepare(
+      'SELECT amount FROM progressive_jackpot WHERE guild_id = ?'
+    ).get(guildId) as { amount: number } | undefined;
 
-      if (result.rows.length === 0) {
-        // Initialize jackpot for new guild
-        await client.query(
-          'INSERT INTO progressive_jackpot (guild_id, amount) VALUES ($1, $2) ON CONFLICT (guild_id) DO NOTHING',
-          [guildId, JACKPOT_SEED]
-        );
-        logger.info(`Initialized jackpot for guild ${guildId}: ${JACKPOT_SEED}`);
-        return JACKPOT_SEED;
-      }
-
-      return parseInt(result.rows[0].amount, 10);
-    } finally {
-      client.release();
+    if (!row) {
+      db.prepare(
+        'INSERT INTO progressive_jackpot (guild_id, amount) VALUES (?, ?) ON CONFLICT (guild_id) DO NOTHING'
+      ).run(guildId, JACKPOT_SEED);
+      logger.info(`Initialized jackpot for guild ${guildId}: ${JACKPOT_SEED}`);
+      return JACKPOT_SEED;
     }
+
+    return row.amount;
   }
 
   async contributeToJackpot(guildId: string, amount: number): Promise<void> {
-    const client = await pool.connect();
-    try {
-      await client.query(
-        `UPDATE progressive_jackpot
-         SET amount = amount + $1,
-             updated_at = NOW()
-         WHERE guild_id = $2`,
-        [amount, guildId]
-      );
-    } finally {
-      client.release();
-    }
+    db.prepare(
+      `UPDATE progressive_jackpot
+       SET amount = amount + ?,
+           updated_at = datetime('now')
+       WHERE guild_id = ?`
+    ).run(amount, guildId);
   }
 
   async resetJackpot(guildId: string, winnerId: string): Promise<void> {
-    const client = await pool.connect();
-    try {
-      await client.query(
-        `UPDATE progressive_jackpot
-         SET amount = $1,
-             last_winner_id = $2,
-             last_won_at = NOW(),
-             updated_at = NOW()
-         WHERE guild_id = $3`,
-        [JACKPOT_SEED, winnerId, guildId]
-      );
-      logger.info(`Reset jackpot for guild ${guildId}, winner: ${winnerId}`);
-    } finally {
-      client.release();
-    }
+    db.prepare(
+      `UPDATE progressive_jackpot
+       SET amount = ?,
+           last_winner_id = ?,
+           last_won_at = datetime('now'),
+           updated_at = datetime('now')
+       WHERE guild_id = ?`
+    ).run(JACKPOT_SEED, winnerId, guildId);
+    logger.info(`Reset jackpot for guild ${guildId}, winner: ${winnerId}`);
   }
 
   // ========== Game Management ==========
