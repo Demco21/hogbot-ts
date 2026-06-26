@@ -41,7 +41,7 @@ declare module '@sapphire/pieces' {
     walletService: WalletService;
   }
 }
-container.walletService = new WalletService();
+container.walletService = new WalletService(container.leaderboardService);
 ```
 
 **❌ WRONG:**
@@ -53,26 +53,25 @@ container.walletService = new WalletService();
 **✅ CORRECT:**
 ```typescript
 // Parameterized queries to prevent SQL injection
-await client.query('SELECT * FROM users WHERE id = $1', [userId]);
+db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
 ```
 
 **❌ WRONG:**
 ```typescript
 // String concatenation vulnerable to SQL injection
-await client.query(`SELECT * FROM users WHERE id = '${userId}'`);
+db.prepare(`SELECT * FROM users WHERE id = '${userId}'`).get();
 ```
 
 ---
 
 ## Project Overview
 
-**HogBot-TS** is a Discord casino bot built with TypeScript, discord.js (Sapphire Framework), and PostgreSQL. Features include casino games (blackjack, slots, cee-lo, ride the bus), wallet management, leaderboards, and game statistics tracking.
+**HogBot-TS** is a Discord casino bot built with TypeScript, discord.js (Sapphire Framework), and SQLite. Features include casino games (blackjack, slots, roulette, ride the bus), wallet management, leaderboards, and game statistics tracking.
 
 ## Running the Bot
 
 ### Prerequisites
 - Node.js 24+ (LTS)
-- Docker Desktop (for PostgreSQL)
 - Discord bot token
 
 ### Local Development
@@ -80,9 +79,6 @@ await client.query(`SELECT * FROM users WHERE id = '${userId}'`);
 ```bash
 # Install dependencies
 npm install
-
-# Start PostgreSQL database (uses docker-compose.yml)
-docker-compose up -d
 
 # Run in development mode (with auto-reload)
 npm run dev
@@ -99,16 +95,11 @@ The bot requires a `.env` file with the following variables:
 ```env
 # Discord Configuration
 DISCORD_TOKEN=your_bot_token_here
-GUILD_ID=your_guild_id
-CASINO_CHANNEL_ID=your_casino_channel_id
-RICHEST_MEMBER_ROLE_ID=your_role_id
+GUILD_ID=your_guild_id           # optional: locks commands to one guild
+CASINO_CHANNEL_ID=your_channel_id  # optional: fallback if not configured per-guild
 
 # Database Configuration
-DATABASE_HOST=localhost
-DATABASE_PORT=5432
-DATABASE_NAME=hogbot
-DATABASE_USER=hogbot
-DATABASE_PASSWORD=your_password
+DATABASE_FILE=./hogbot.db        # optional: defaults to ./hogbot.db
 
 # Environment
 NODE_ENV=development
@@ -116,24 +107,27 @@ NODE_ENV=development
 
 Use `.env.example` as a template.
 
+Per-guild settings (richest member role, casino channel, beers channel) are configured via the `/config` command and stored in the `guild_settings` table — not in `.env`.
+
 ## Architecture Overview
 
 ### Core Components
 
 **HogBotClient (`src/index.ts`)**
 - Custom Sapphire client that extends `SapphireClient`
-- Initializes all services (WalletService, LeaderboardService, StatsService)
-- Services are attached to `client.container` for global access
+- Initializes all services in `login()` with explicit constructor injection
+- Services are attached to `container` for global access from commands/listeners
 - Handles database initialization on login and cleanup on destroy
 - Graceful shutdown handlers for SIGINT/SIGTERM
 
 **Services (`src/services/`)**
-- **WalletService**: Balance operations, user creation, coin transfers, transaction logging
-- **LeaderboardService**: Rankings, richest member role management (debounced updates)
+- **WalletService**: Balance operations, user creation, coin transfers, transaction logging. Receives `LeaderboardService` via constructor so it can trigger richest member updates after resolved transactions.
+- **LeaderboardService**: Rankings, richest member role management. Tracks current richest per-guild in memory; only makes Discord API calls when it changes.
 - **StatsService**: Per-game statistics, wrapped stats, streak tracking, high scores
 - **DeckService**: Shared card deck management (used by Blackjack, Ride the Bus)
-- All services use the PostgreSQL connection pool from `lib/database.ts`
-- Services are accessed via `this.container.walletService` in commands
+- **GuildSettingsService**: Per-guild configuration (richest member role, casino channel, beers channel)
+- **GameStateService**: Crash recovery for complex multi-round games
+- Services accessed via `this.container.walletService` in commands
 
 **Commands (`src/commands/`)**
 - Sapphire command pattern using `@ApplyOptions` decorator
@@ -150,43 +144,55 @@ Use `.env.example` as a template.
 - **beers-scheduler.ts**: Scheduled background jobs
 
 **Database Layer (`src/lib/database.ts`)**
-- PostgreSQL connection pool with 20 max connections
-- Health check and schema verification on startup
-- Connection management: get connection, execute query, release in finally block
-- All financial operations use database functions for atomicity
+- SQLite via `better-sqlite3` — synchronous, embedded, no separate process
+- WAL mode enabled for better concurrent read performance
+- Schema is created inline via `CREATE TABLE IF NOT EXISTS` on startup
+- No connection pooling needed; `db` is a single shared instance
 
 ### Database Schema
 
 **Core Tables:**
-- `users`: User wallets, metadata, last_active timestamps
+- `guild_settings`: Per-guild configuration (richest member role, casino/beers channel, timezone)
+- `users`: User wallets with composite PK `(user_id, guild_id)`, balance, high water mark
 - `transactions`: Immutable transaction log (game_source, update_type, amount, balance_after)
-- `balance_history`: Circular buffer (max 100 per user) for balance graphing
 - `game_stats`: Per-game win/loss/streak statistics
-- `progressive_jackpot`: Single-row table for slots jackpot pool
-- `loan_rate_limits`: Enforces 3 loans per hour per user
-- `active_game_sessions`: For crash recovery in complex games
-- `rtb_color_stats`: Ride the Bus color choice statistics
+- `progressive_jackpot`: Per-guild slots jackpot pool
+- `loan_rate_limits`: Enforces loan frequency limits per user
+- `game_sessions`: Active game state for crash recovery in complex games
+- `game_crash_history`: Audit log of crashed/refunded games
+- `voice_sessions`: Active voice channel sessions (for voice time tracking)
+- `voice_time_history` / `voice_time_aggregates`: Voice time tracking
 
-**Database Functions:**
-- `update_wallet_with_history()`: Atomic balance update + transaction log + history entry
-- `transfer_coins()`: Atomic coin transfer between two users
-- `update_richest_member()`: Trigger function to track richest member changes
+**No database functions or views** — all logic lives in TypeScript application code.
 
-**Views:**
-- `leaderboard_view`: Optimized view for leaderboard queries
+**Balance History:**
+- The `transactions` table is the single source of truth
+- Balance graphs are derived from `transactions`, filtering out intermediate states (`bet_placed`, `round_won`)
+- No separate balance history table
 
 ### Key Patterns
 
 **Atomic Transactions**
-- All balance modifications use `update_wallet_with_history()` database function
-- This ensures balance updates, transaction logging, and history tracking happen atomically
-- Never update balances with raw SQL - always use the database function
+- Multi-step balance operations use `db.transaction()` from better-sqlite3
+- This wraps synchronous SQLite operations in a single atomic transaction
+- Never update balances with ad-hoc raw SQL outside of `WalletService`
 
 **Service Dependency Injection**
-- Services are instantiated in the `login()` method override
-- Attached to the global `container` object imported from `@sapphire/framework`
-- The Container interface is augmented to include service types
-- Commands access services via `this.container.walletService`, etc.
+- Services are instantiated in `login()` with explicit constructor arguments
+- Dependencies are passed in; services do not import `container` or reach out to each other at module level
+- The `container` holds all services; commands access them via `this.container.<serviceName>`
+
+```typescript
+// index.ts — initialization order matters
+container.leaderboardService = new LeaderboardService();
+container.walletService = new WalletService(container.leaderboardService);
+container.blackjackService = new BlackjackService(
+  container.walletService,
+  container.statsService,
+  container.leaderboardService,
+  container.gameStateService
+);
+```
 
 **Sapphire Command Pattern**
 ```typescript
@@ -215,11 +221,9 @@ export class MyCommand extends Command {
 
   public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
     try {
-      // Access services from container (available after client login)
-      const balance = await this.container.walletService.getBalance(userId);
-      const topUsers = await this.container.leaderboardService.getTopUsers(10);
+      const balance = await this.container.walletService.getBalance(userId, guildId);
+      const topUsers = await this.container.leaderboardService.getTopUsers(guildId, 10);
 
-      // Command logic here
       await interaction.reply({ content: 'Response' });
     } catch (error) {
       this.container.logger.error('Error in command:', error);
@@ -237,12 +241,13 @@ export class MyCommand extends Command {
 **Error Handling**
 - Wrap command logic in try/catch
 - Log errors with `this.container.logger.error()`
-- Always release database connections in `finally` blocks
 - Send user-friendly error messages with `ephemeral: true`
 
 **Leaderboard Role Management**
-- Richest member role is updated automatically via debounced function
-- 5-second debounce prevents role spam during rapid balance changes
+- Richest member role is updated automatically after every resolved transaction (`BET_WON`, `BET_LOST`, `REFUND`, etc.)
+- Both `updateBalance()` and `logTransaction()` in WalletService trigger the check
+- The check is a no-op if the richest member hasn't changed (in-memory comparison, no Discord API call)
+- `BET_PLACED` and `ROUND_WON` are excluded from triggering the check (intermediate states)
 
 ## TypeScript/Node.js Development Guidelines
 
@@ -257,18 +262,9 @@ export class MyCommand extends Command {
 - TypeScript will compile `.ts` to `.js`, but imports must reference `.js`
 
 ### Async Patterns
-- All Discord interactions and database queries are async
-- Use `async/await` - no callbacks or raw promises
-- Database connections must be released in `finally` blocks:
-  ```typescript
-  const client = await pool.connect();
-  try {
-    const result = await client.query('SELECT ...');
-    return result.rows;
-  } finally {
-    client.release();
-  }
-  ```
+- Discord interactions are async; SQLite via better-sqlite3 is synchronous
+- Use `async/await` for Discord API calls and service methods
+- SQLite operations (`db.prepare().get/all/run`) are synchronous — no `await` needed
 
 ### Discord.js (v14) Patterns
 - **Interaction responses**:
@@ -299,70 +295,38 @@ export class MyCommand extends Command {
 
 **⚠️ CRITICAL: Use Application Logic, Not Database Functions**
 
-We use **application logic with SQL transactions** instead of database functions for all wallet operations. This provides:
-- ✅ Better testability (can unit test TypeScript)
-- ✅ Type safety (TypeScript types, not SQL)
-- ✅ Easier debugging (step through code)
-- ✅ Better code review (visible in PRs)
-- ✅ Version control (no migration scripts for logic changes)
+All wallet logic lives in TypeScript via `WalletService`. Never bypass it with raw SQL updates to the `users` table.
 
-**Wallet Operations Pattern:**
+**SQLite Operations Pattern (better-sqlite3):**
 ```typescript
-async updateBalance(...) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+// Synchronous reads
+const user = db.prepare('SELECT balance FROM users WHERE user_id = ? AND guild_id = ?')
+  .get(userId, guildId) as { balance: number } | undefined;
 
-    // 1. Ensure user exists (upsert)
-    await client.query(
-      `INSERT INTO users (user_id, balance, username)
-       VALUES ($1, 10000, 'Unknown')
-       ON CONFLICT (user_id) DO NOTHING`,
-      [userId]
-    );
+// Atomic multi-step operation
+const doUpdate = db.transaction(() => {
+  db.prepare(`UPDATE users SET balance = ? WHERE user_id = ? AND guild_id = ?`)
+    .run(newBalance, userId, guildId);
 
-    // 2. Update balance atomically
-    const result = await client.query(
-      `UPDATE users
-       SET balance = balance + $1,
-           high_water_balance = GREATEST(high_water_balance, balance + $1),
-           updated_at = NOW()
-       WHERE user_id = $2
-       RETURNING balance`,
-      [amount, userId]
-    );
+  db.prepare(`INSERT INTO transactions (user_id, guild_id, amount, balance_after, game_source, update_type, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(userId, guildId, amount, newBalance, gameSource, updateType, JSON.stringify(metadata));
 
-    // 3. Log transaction
-    await client.query(
-      `INSERT INTO transactions (user_id, amount, balance_after, ...)
-       VALUES ($1, $2, $3, ...)`,
-      [userId, amount, newBalance, ...]
-    );
+  return newBalance;
+});
 
-    await client.query('COMMIT');
-    return newBalance;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-}
+const result = doUpdate() as number;
 ```
 
 **General Database Rules:**
-- Use parameterized queries to prevent SQL injection: `client.query('SELECT * FROM users WHERE id = $1', [userId])`
-- Always use transactions (`BEGIN/COMMIT/ROLLBACK`) for multi-query operations
-- Connection pooling is automatic - get connection, use it, release it in `finally`
-- Use `RETURNING *` to get updated row data in INSERT/UPDATE queries
-- **IMPORTANT:** BIGINT columns are configured to parse as JavaScript numbers (via `types.setTypeParser(20, ...)` in `database.ts`)
-  - This is safe for in-game currency (won't exceed `Number.MAX_SAFE_INTEGER`)
-  - Without this, `pg` returns BIGINT as strings, breaking `toLocaleString()` formatting
+- Use parameterized queries (`?` placeholders) to prevent SQL injection
+- Use `db.transaction()` for multi-step operations that must be atomic
+- Use `RETURNING *` / `RETURNING <col>` is NOT supported in older SQLite; read back with a SELECT if needed
+- All coin amounts are stored as `INTEGER` (SQLite); better-sqlite3 returns them as JS numbers natively
 
 **Balance History:**
 - The `transactions` table is the single source of truth
-- Balance history for graphs is queried from `transactions` table, filtering out `bet_placed` and `round_won`
-- No separate `balance_history` table needed - eliminates data duplication
+- Balance history for graphs is queried from `transactions`, filtering out `bet_placed` and `round_won`
 
 ### Error Handling & Logging
 - Import logger: `this.container.logger` (in commands/listeners)
@@ -373,35 +337,39 @@ async updateBalance(...) {
 ### Constants & Configuration
 - Environment variables: `src/config.ts` (validated with Zod)
 - Game constants: `src/constants.ts` (CASINO_CONFIG, enums)
-- Use `Config.discord.token`, `Config.database.host`, etc.
+- Use `Config.discord.token`, `Config.database.file`, etc.
 - Enums: `GameSource`, `UpdateType` for transaction tracking
 
 ### State Management
-- All state is stored in PostgreSQL
-- Services query database as needed
-- Caching should be minimal and invalidated properly
+- All persistent state is stored in SQLite
+- Services query the database as needed
+- `LeaderboardService` tracks current richest member per-guild in memory (rehydrated on bot start)
 
 ## Important Files
 
-- `src/index.ts`: Bot entry point, client initialization
+- `src/index.ts`: Bot entry point, client initialization, service wiring
 - `src/config.ts`: Environment variables with Zod validation
 - `src/constants.ts`: Game enums (GameSource, UpdateType), casino config
-- `src/lib/database.ts`: PostgreSQL connection pool
+- `src/lib/database.ts`: SQLite database instance and schema
 - `src/lib/types.ts`: TypeScript type definitions
 - `src/utils/utils.ts`: Formatting utilities (formatCoins, formatDuration)
 - `src/utils/game-utils.ts`: Shared game UI utilities (timeout handling)
-- `src/services/WalletService.ts`: Balance operations
+- `src/services/WalletService.ts`: Balance operations (requires LeaderboardService via constructor)
 - `src/services/LeaderboardService.ts`: Rankings and richest member role
 - `src/services/StatsService.ts`: Game statistics tracking
+- `src/services/GuildSettingsService.ts`: Per-guild configuration
+- `src/services/GameStateService.ts`: Active game session / crash recovery
 - `src/services/DeckService.ts`: Shared card deck management
 
 ## Testing During Development
 
 - Use `npm run dev` for auto-reload during development
 - Test all commands in the designated casino channel
-- Check database state with:
+- Inspect the SQLite database directly:
   ```bash
-  docker exec -it hogbot-postgres psql -U hogbot -d hogbot
+  sqlite3 hogbot.db
+  .tables
+  SELECT * FROM users;
   ```
 - View logs in console (Sapphire logger outputs to stdout)
 
@@ -411,7 +379,6 @@ async updateBalance(...) {
 - Prefer `const` over `let` when possible
 - Use descriptive variable names (e.g., `userBalance` not `bal`)
 - Keep functions focused and single-purpose
-- Add JSDoc comments for complex functions
 - Use TypeScript strict mode (enabled in tsconfig.json)
 - **CRITICAL: ALWAYS use `formatCoins()` for displaying coin amounts**
   - Import from `src/utils/utils.ts`
@@ -461,50 +428,43 @@ Note: Commands, listeners, and preconditions all export classes, but file naming
 6. Use `WalletService` for all balance operations
 7. For card games, use `DeckService` for deck/card management
 8. Use `handleGameTimeoutUI()` from `src/utils/game-utils.ts` for timeout handling
-7. **CRITICAL: Log ALL game transactions (bet_placed, bet_won, bet_lost)**
+9. **CRITICAL: Log ALL game transactions (bet_placed, bet_won, bet_lost)**
    ```typescript
    // 1. When bet is placed (deduct from balance)
-   await this.container.walletService.updateBalance(
-     userId,
-     -betAmount,
-     GameSource.YOUR_GAME,
-     UpdateType.BET_PLACED,
+   await walletService.updateBalance(
+     userId, guildId, -betAmount,
+     GameSource.YOUR_GAME, UpdateType.BET_PLACED,
      { bet_amount: betAmount }
    );
 
    // 2a. If player WINS (add payout to balance)
-   await this.container.walletService.updateBalance(
-     userId,
-     payoutAmount,
-     GameSource.YOUR_GAME,
-     UpdateType.BET_WON,
+   await walletService.updateBalance(
+     userId, guildId, payoutAmount,
+     GameSource.YOUR_GAME, UpdateType.BET_WON,
      { bet_amount: betAmount, payout_amount: payoutAmount }
    );
 
-   // 2b. If player LOSES (log the loss, no balance change)
-   await this.container.walletService.updateBalance(
-     userId,
-     0, // no balance change (already deducted in BET_PLACED)
-     GameSource.YOUR_GAME,
-     UpdateType.BET_LOST,
+   // 2b. If player LOSES (log the loss — balance already deducted at BET_PLACED)
+   await walletService.logTransaction(
+     userId, guildId,
+     GameSource.YOUR_GAME, UpdateType.BET_LOST,
      { bet_amount: betAmount, payout_amount: 0 }
    );
    ```
 
-8. **CRITICAL: Use `StatsService.updateGameStats()` to track EVERY game result (win or loss)**
-   ```typescript
-   // After each game round, call updateGameStats
-   await this.container.statsService.updateGameStats(
-     userId,
-     GameSource.YOUR_GAME,
-     wonOrLost, // true for win, false for loss
-     betAmount,
-     payoutAmount, // 0 if lost
-     extraStats // e.g., { bonus_spins: 1, jackpot_hits: 1 }
-   );
-   ```
+10. **CRITICAL: Use `StatsService.updateGameStats()` to track EVERY game result (win or loss)**
+    ```typescript
+    await statsService.updateGameStats(
+      userId, guildId,
+      GameSource.YOUR_GAME,
+      wonOrLost,     // true for win, false for loss
+      betAmount,
+      payoutAmount,  // 0 if lost
+      extraStats     // e.g., { bonus_spins: 1, jackpot_hits: 1 }
+    );
+    ```
 
-9. **CRITICAL: Verify Stats Accuracy After Implementation**
+11. **CRITICAL: Verify Stats Accuracy After Implementation**
     After implementing any game or feature, ALWAYS verify:
     - ✅ Check `transactions` table has all three types: `bet_placed`, `bet_won`, `bet_lost`
     - ✅ Run `/stats` command and verify the PNG graph shows accurate balance progression
@@ -513,10 +473,12 @@ Note: Commands, listeners, and preconditions all export classes, but file naming
     - ✅ Check game-specific stats (bonus spins, jackpot hits, etc.) are incrementing
     - ✅ Test both win and loss scenarios to ensure both are logged correctly
 
+12. **Wire up the new GameService in `index.ts`** — inject its dependencies via constructor (see existing services as reference)
+
 ### Adding a new service:
 1. Create service class in `src/services/<ServiceName>.ts`
 2. Import service in `src/index.ts`
-3. Add service to Container interface augmentation:
+3. Add service to Container interface augmentation in `src/index.ts`:
    ```typescript
    declare module '@sapphire/pieces' {
      interface Container {
@@ -524,16 +486,15 @@ Note: Commands, listeners, and preconditions all export classes, but file naming
      }
    }
    ```
-4. Initialize service in `login()` method:
+4. Initialize in `login()` with constructor injection for any dependencies:
    ```typescript
-   container.myService = new MyService();
+   container.myService = new MyService(container.walletService);
    ```
 5. Access in commands via `this.container.myService`
 
 ## Debugging Tips
 
 - Use `this.container.logger.info()` liberally during development
-- Check database state directly if balance issues occur
+- Inspect the database directly with `sqlite3 hogbot.db` if balance issues occur
 - Use `NODE_ENV=development` for verbose logging
-- Monitor database connections with `SELECT * FROM pg_stat_activity;`
 - Test edge cases: insufficient balance, rate limits, concurrent updates
