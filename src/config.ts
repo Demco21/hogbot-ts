@@ -9,6 +9,7 @@ const envSchema = z.object({
   CASINO_CHANNEL_ID: z.string().optional(),
   DATABASE_FILE: z.string().optional(),
   NODE_ENV: z.enum(['development', 'production']).default('development'),
+  ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -28,6 +29,9 @@ export const Config = {
   },
   database: {
     file: env.DATABASE_FILE ?? './hogbot.db',
+  },
+  ai: {
+    apiKey: env.ANTHROPIC_API_KEY,
   },
   bot: {
     isDevelopment: env.NODE_ENV === 'development',

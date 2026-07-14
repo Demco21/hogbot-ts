@@ -108,6 +108,16 @@ const SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS idx_loan_rate_limits_lender_guild_created ON loan_rate_limits(lender_id, guild_id, created_at);
 
+  CREATE TABLE IF NOT EXISTS ai_rate_limits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (guild_id) REFERENCES guild_settings(guild_id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_ai_rate_limits_user_guild_created ON ai_rate_limits(user_id, guild_id, created_at);
+
   CREATE TABLE IF NOT EXISTS game_sessions (
     session_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
