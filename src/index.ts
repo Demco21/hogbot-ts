@@ -15,6 +15,7 @@ import { RouletteService } from './services/RouletteService.js';
 import { GameStateService } from './services/GameStateService.js';
 import { GuildSettingsService } from './services/GuildSettingsService.js';
 import { VoiceTimeService } from './services/VoiceTimeService.js';
+import { AiService } from './services/AiService.js';
 
 // Configure Sapphire to not overwrite commands unless they changed
 // This prevents unnecessary command recreation and propagation delays
@@ -33,6 +34,7 @@ declare module '@sapphire/pieces' {
     rouletteService: RouletteService;
     gameStateService: GameStateService;
     voiceTimeService: VoiceTimeService;
+    aiService: AiService;
   }
 }
 
@@ -47,6 +49,9 @@ class HogBotClient extends SapphireClient {
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates,
+        // Required to read the content of a replied-to message for the HogAI @mention
+        // trigger. Must also be enabled in the Discord Developer Portal (Bot tab).
+        GatewayIntentBits.MessageContent,
       ],
       partials: [Partials.GuildMember],
       loadMessageCommandListeners: true,
@@ -71,6 +76,7 @@ class HogBotClient extends SapphireClient {
     container.statsService = new StatsService();
     container.gameStateService = new GameStateService();
     container.voiceTimeService = new VoiceTimeService();
+    container.aiService = new AiService();
     container.blackjackService = new BlackjackService(
       container.walletService,
       container.statsService,

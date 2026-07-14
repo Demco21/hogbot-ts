@@ -25,6 +25,7 @@ export class ReadyListener extends Listener {
       logger.info(`Node Version:    ${process.version}`);
       logger.info(`Guilds:          ${client.guilds.cache.size}`);
       logger.info(`Commands:        ${client.stores.get('commands').size}`);
+      logger.info(`Intents:         ${client.options.intents.toArray().join(', ')}`);
       logger.info('───────────────────────────────────────────────────────────');
 
       // List all guilds
