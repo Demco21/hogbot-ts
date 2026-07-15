@@ -1,11 +1,13 @@
 import { Listener } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
-import { Message } from 'discord.js';
+import { Message, PermissionFlagsBits } from 'discord.js';
 import { safeLogger as logger } from '../lib/safe-logger.js';
 import { AI_CONFIG } from '../constants.js';
 import {
   stripBotMention,
   extractQuotableText,
+  extractImageUrls,
+  collectImageUrls,
   buildContextualPrompt,
   buildHogAiAnswerEmbed,
   type QuotedMessage,
@@ -33,6 +35,13 @@ export class MessageCreateListener extends Listener {
       const botUser = this.container.client.user;
       if (!botUser || !message.mentions.has(botUser)) return;
 
+      if (!(await this.hasAiAccess(message))) {
+        await message.reply({
+          content: '❌ You don\'t have access to HogAI. Ask an admin to grant you the configured access role.',
+        });
+        return;
+      }
+
       const userId = message.author.id;
       const guildId = message.guild.id;
 
@@ -41,10 +50,11 @@ export class MessageCreateListener extends Listener {
 
       const strippedQuestion = stripBotMention(message.content, botUser.id);
       const quotedChain = await this.fetchReplyChain(message);
+      const imageUrls = collectImageUrls(message, quotedChain, AI_CONFIG.MAX_IMAGES_PER_REQUEST);
 
-      const question = this.resolveQuestion(strippedQuestion, quotedChain);
+      const question = this.resolveQuestion(strippedQuestion, quotedChain, imageUrls.length > 0);
       if (question === null) {
-        // Bare mention with nothing to reply to and nothing typed - nothing to answer.
+        // Bare mention with nothing to reply to, nothing typed, and no images - nothing to answer.
         return;
       }
 
@@ -60,7 +70,7 @@ export class MessageCreateListener extends Listener {
 
       await message.channel.sendTyping();
 
-      const result = await this.container.aiService.ask(userId, guildId, prompt);
+      const result = await this.container.aiService.ask(userId, guildId, prompt, imageUrls);
 
       if (!result.ok) {
         await message.reply({ content: result.message });
@@ -74,6 +84,26 @@ export class MessageCreateListener extends Listener {
       logger.error('Error handling messageCreate (HogAI mention trigger):', error);
       // Don't throw - this is a listener, errors should not crash the bot
     }
+  }
+
+  /**
+   * HogAI is restricted to a configurable access role (plus admins) once one has been set
+   * per-guild via /config (guildSettingsService.setAiAccessRoleId) - not a Discord
+   * permission bit, since servers name/scope their roles however they like. Mirrors
+   * CasinoChannelOnlyPrecondition's fail-open convention: if no role is configured yet,
+   * access is unrestricted rather than silently admin-only. The guild owner always passes
+   * the Administrator check regardless of roles - discord.js grants owners full permissions
+   * (GuildMember#permissions) independent of role assignment.
+   */
+  private async hasAiAccess(message: Message<true>): Promise<boolean> {
+    if (message.member?.permissions.has(PermissionFlagsBits.Administrator)) return true;
+
+    const accessRoleId = await this.container.guildSettingsService.getAiAccessRoleId(
+      message.guild.id
+    );
+    if (!accessRoleId) return true;
+
+    return message.member?.roles.cache.has(accessRoleId) ?? false;
   }
 
   /**
@@ -106,15 +136,17 @@ export class MessageCreateListener extends Listener {
       }
 
       const content = extractQuotableText(referenced);
+      const imageUrls = extractImageUrls(referenced, AI_CONFIG.MAX_IMAGES_PER_REQUEST);
 
-      // No plain content and no embed text to fall back on - genuinely nothing to quote
-      // (could still be an intent issue if this is a plain-text message from another user).
-      if (content) {
-        chain.push({ authorName: referenced.author.username, content });
+      // No plain content, no embed text, and no image to fall back on - genuinely nothing
+      // to quote (could still be an intent issue if this is a plain-text message from
+      // another user).
+      if (content || imageUrls.length > 0) {
+        chain.push({ authorName: referenced.author.username, content, imageUrls });
         accumulatedLength += content.length;
       } else {
         logger.warn(
-          `Replied-to message ${referenced.id} had no quotable text - is the Message Content intent enabled?`
+          `Replied-to message ${referenced.id} had no quotable text or images - is the Message Content intent enabled?`
         );
       }
 
@@ -125,13 +157,19 @@ export class MessageCreateListener extends Listener {
   }
 
   /**
-   * Determines the final question text, applying the default mention prompt when a
-   * user mentions HogAI on a reply with no question of their own. Returns null when
-   * there is nothing to answer (bare mention, no reply, no typed question).
+   * Determines the final question text, applying a default prompt when a user mentions
+   * HogAI with no question of their own - one geared toward the reply chain if present,
+   * otherwise toward any directly-attached images. Returns null when there is nothing to
+   * answer (bare mention, no reply, no typed question, no images).
    */
-  private resolveQuestion(strippedQuestion: string, quotedChain: QuotedMessage[]): string | null {
+  private resolveQuestion(
+    strippedQuestion: string,
+    quotedChain: QuotedMessage[],
+    hasImages: boolean
+  ): string | null {
     if (strippedQuestion.length > 0) return strippedQuestion;
     if (quotedChain.length > 0) return AI_CONFIG.DEFAULT_MENTION_PROMPT;
+    if (hasImages) return AI_CONFIG.DEFAULT_IMAGE_PROMPT;
     return null;
   }
 }

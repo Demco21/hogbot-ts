@@ -2,7 +2,7 @@
  * Shared helpers for HogAI's @mention message trigger - prompt construction
  * and embed formatting live here.
  */
-import { EmbedBuilder, type Message } from 'discord.js';
+import { EmbedBuilder, type Attachment, type Message } from 'discord.js';
 import { AI_CONFIG, EMBED_COLORS, EMBED_LIMITS } from '../constants.js';
 
 /**
@@ -11,6 +11,7 @@ import { AI_CONFIG, EMBED_COLORS, EMBED_LIMITS } from '../constants.js';
 export interface QuotedMessage {
   authorName: string;
   content: string;
+  imageUrls: string[];
 }
 
 /**
@@ -43,6 +44,60 @@ export function extractQuotableText(message: Message): string {
   });
 
   return embedTexts.join('\n').trim();
+}
+
+/**
+ * Extracts up to maxImages image URLs from a message - both directly uploaded image
+ * attachments and images Discord auto-embedded from a pasted link. Passed straight to
+ * Anthropic as `{type: "image", source: {type: "url", url}}` content blocks - no
+ * downloading/re-uploading needed since Discord CDN attachment URLs are public.
+ */
+export function extractImageUrls(message: Message, maxImages: number): string[] {
+  const urls: string[] = [];
+
+  for (const attachment of message.attachments.values()) {
+    if (urls.length >= maxImages) return urls;
+    if (isImageAttachment(attachment)) {
+      urls.push(attachment.url);
+    }
+  }
+
+  for (const embed of message.embeds) {
+    if (urls.length >= maxImages) return urls;
+    if (embed.image?.url) {
+      urls.push(embed.image.url);
+    }
+  }
+
+  return urls;
+}
+
+function isImageAttachment(attachment: Attachment): boolean {
+  if (attachment.contentType?.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp)$/i.test(attachment.name ?? '');
+}
+
+/**
+ * Merges image URLs from the triggering message and the reply chain into a single
+ * capped list to attach to the AI request. The triggering message's own attachments
+ * come first (the thing the user is most directly asking about), then the reply chain
+ * newest-first - mirroring the priority order buildQuotedChainSection uses for text.
+ */
+export function collectImageUrls(
+  message: Message,
+  quotedChain: QuotedMessage[],
+  maxImages: number
+): string[] {
+  const urls = extractImageUrls(message, maxImages);
+
+  for (let i = quotedChain.length - 1; i >= 0 && urls.length < maxImages; i--) {
+    for (const url of quotedChain[i]!.imageUrls) {
+      if (urls.length >= maxImages) break;
+      urls.push(url);
+    }
+  }
+
+  return urls;
 }
 
 /**

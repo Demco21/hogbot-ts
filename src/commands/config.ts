@@ -55,6 +55,11 @@ export class ConfigCommand extends Command {
           .setStyle(ButtonStyle.Primary)
           .setEmoji('🍺'),
         new ButtonBuilder()
+          .setCustomId('config_ai_access_role')
+          .setLabel('Set HogAI Access Role')
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji('🤖'),
+        new ButtonBuilder()
           .setCustomId('config_reset')
           .setLabel('Reset All')
           .setStyle(ButtonStyle.Danger)
@@ -89,6 +94,8 @@ export class ConfigCommand extends Command {
             await this.handleRichestRoleConfig(buttonInteraction, guildId, guild);
           } else if (buttonInteraction.customId === 'config_beers_channel') {
             await this.handleBeersChannelConfig(buttonInteraction, guildId, guild);
+          } else if (buttonInteraction.customId === 'config_ai_access_role') {
+            await this.handleAiAccessRoleConfig(buttonInteraction, guildId, guild);
           } else if (buttonInteraction.customId === 'config_reset') {
             await this.handleResetConfig(buttonInteraction, guildId, guild);
           }
@@ -127,7 +134,8 @@ export class ConfigCommand extends Command {
       casinoChannelId: string | null;
       beersChannelId: string | null;
       beersTimezone: string | null;
-      guildName: string | null
+      guildName: string | null;
+      aiAccessRoleId: string | null;
     },
     guild: Command.ChatInputCommandInteraction['guild']
   ): Promise<EmbedBuilder> {
@@ -145,6 +153,10 @@ export class ConfigCommand extends Command {
       : '*Not set (feature disabled)*';
 
     const beersTimezone = settings.beersTimezone || 'America/New_York';
+
+    const aiAccessRoleName = settings.aiAccessRoleId
+      ? guild?.roles.cache.get(settings.aiAccessRoleId)?.name || '*Role not found*'
+      : '*Not set (unrestricted - anyone can use it)*';
 
     return new EmbedBuilder()
       .setColor(EMBED_COLORS.INFO)
@@ -166,6 +178,11 @@ export class ConfigCommand extends Command {
           value: settings.beersChannelId
             ? `${beersChannelName}\n*Timezone: ${beersTimezone}*`
             : beersChannelName,
+          inline: false,
+        },
+        {
+          name: '🤖 HogAI Access Role',
+          value: aiAccessRoleName,
           inline: false,
         }
       )
@@ -353,6 +370,86 @@ export class ConfigCommand extends Command {
     });
   }
 
+  private async handleAiAccessRoleConfig(
+    interaction: Command.ChatInputCommandInteraction | any,
+    guildId: string,
+    _guild: Command.ChatInputCommandInteraction['guild']
+  ) {
+    // Create role select menu
+    const selectMenu = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+      new RoleSelectMenuBuilder()
+        .setCustomId('select_ai_access_role')
+        .setPlaceholder('Select the role allowed to use HogAI')
+    );
+
+    const removeButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId('remove_ai_access_role')
+        .setLabel('Remove Restriction')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('❌')
+    );
+
+    await interaction.reply({
+      content:
+        '**Select HogAI Access Role**\n\n' +
+        'Choose the role allowed to @mention HogAI (server Administrators can always use it), ' +
+        'or click "Remove Restriction" to let anyone use it.',
+      components: [selectMenu, removeButton],
+      flags: MessageFlags.Ephemeral,
+    });
+
+    // Wait for selection
+    const response = await interaction.fetchReply();
+    const collector = response.createMessageComponentCollector({
+      time: 60000, // 1 minute
+    });
+
+    collector.on('collect', async (i: any) => {
+      if (i.user.id !== interaction.user.id) {
+        await i.reply({ content: 'Only the command user can interact with this.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      try {
+        if (i.customId === 'select_ai_access_role' && i.isRoleSelectMenu()) {
+          const selectedRoleId = i.values[0];
+          const role = _guild?.roles.cache.get(selectedRoleId);
+
+          if (!role) {
+            await i.reply({ content: 'Role not found.', flags: MessageFlags.Ephemeral });
+            return;
+          }
+
+          await this.container.guildSettingsService.setAiAccessRoleId(guildId, selectedRoleId);
+
+          await i.update({
+            content: `✅ HogAI access role set to **${role.name}**\n\nOnly members with that role (and admins) can @mention HogAI now.`,
+            components: [],
+          });
+        } else if (i.customId === 'remove_ai_access_role') {
+          await this.container.guildSettingsService.setAiAccessRoleId(guildId, null);
+
+          await i.update({
+            content: '✅ HogAI access restriction removed - anyone can @mention HogAI now.',
+            components: [],
+          });
+        }
+
+        collector.stop();
+      } catch (error) {
+        this.container.logger.error('Error setting HogAI access role:', error);
+        await i.reply({ content: 'An error occurred while updating the setting.', flags: MessageFlags.Ephemeral });
+      }
+    });
+
+    collector.on('end', (collected: any) => {
+      if (collected.size === 0) {
+        interaction.editReply({ content: 'Selection timed out.', components: [] }).catch(() => {});
+      }
+    });
+  }
+
   private async handleBeersChannelConfig(
     interaction: Command.ChatInputCommandInteraction | any,
     guildId: string,
@@ -522,7 +619,8 @@ export class ConfigCommand extends Command {
         'This will:\n' +
         '• Remove casino channel restriction (allow everywhere)\n' +
         '• Disable richest member role feature\n' +
-        '• Disable beers channel feature\n\n' +
+        '• Disable beers channel feature\n' +
+        '• Remove HogAI access restriction (allow everyone)\n\n' +
         'This action cannot be undone.',
       components: [confirmRow],
       flags: MessageFlags.Ephemeral,
@@ -545,6 +643,7 @@ export class ConfigCommand extends Command {
           await this.container.guildSettingsService.setCasinoChannelId(guildId, null);
           await this.container.guildSettingsService.setRichestMemberRoleId(guildId, null);
           await this.container.guildSettingsService.setBeersChannelId(guildId, null);
+          await this.container.guildSettingsService.setAiAccessRoleId(guildId, null);
 
           await i.update({
             content: '✅ All settings have been reset to default values.',

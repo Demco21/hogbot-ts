@@ -16,6 +16,7 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 export class GuildSettingsService {
   private richestMemberRoleCache: Map<string, string | null> = new Map();
   private casinoChannelCache: Map<string, string | null> = new Map();
+  private aiAccessRoleCache: Map<string, string | null> = new Map();
 
   async getRichestMemberRoleId(guildId: string): Promise<string | null> {
     if (this.richestMemberRoleCache.has(guildId)) {
@@ -44,6 +45,33 @@ export class GuildSettingsService {
     logger.info(`Updated richest member role for guild ${guildId}: ${roleId ?? 'disabled'}`);
   }
 
+  async getAiAccessRoleId(guildId: string): Promise<string | null> {
+    if (this.aiAccessRoleCache.has(guildId)) {
+      return this.aiAccessRoleCache.get(guildId)!;
+    }
+
+    const row = db.prepare(
+      'SELECT ai_access_role_id FROM guild_settings WHERE guild_id = ?'
+    ).get(guildId) as { ai_access_role_id: string | null } | undefined;
+
+    const roleId = row?.ai_access_role_id ?? null;
+    this.aiAccessRoleCache.set(guildId, roleId);
+    return roleId;
+  }
+
+  async setAiAccessRoleId(guildId: string, roleId: string | null): Promise<void> {
+    db.prepare(
+      `INSERT INTO guild_settings (guild_id, ai_access_role_id)
+       VALUES (?, ?)
+       ON CONFLICT (guild_id) DO UPDATE
+       SET ai_access_role_id = excluded.ai_access_role_id,
+           updated_at = datetime('now')`
+    ).run(guildId, roleId);
+
+    this.aiAccessRoleCache.set(guildId, roleId);
+    logger.info(`Updated HogAI access role for guild ${guildId}: ${roleId ?? 'unset (unrestricted)'}`);
+  }
+
   async initializeGuild(guildId: string, guildName: string): Promise<void> {
     db.prepare(
       `INSERT INTO guild_settings (guild_id, guild_name)
@@ -59,6 +87,7 @@ export class GuildSettingsService {
   clearCache(): void {
     this.richestMemberRoleCache.clear();
     this.casinoChannelCache.clear();
+    this.aiAccessRoleCache.clear();
     logger.debug('Cleared guild settings cache');
   }
 
@@ -157,9 +186,10 @@ export class GuildSettingsService {
     beersChannelId: string | null;
     beersTimezone: string | null;
     guildName: string | null;
+    aiAccessRoleId: string | null;
   }> {
     const row = db.prepare(
-      `SELECT richest_member_role_id, casino_channel_id, beers_channel_id, beers_timezone, guild_name
+      `SELECT richest_member_role_id, casino_channel_id, beers_channel_id, beers_timezone, guild_name, ai_access_role_id
        FROM guild_settings
        WHERE guild_id = ?`
     ).get(guildId) as {
@@ -168,6 +198,7 @@ export class GuildSettingsService {
       beers_channel_id: string | null;
       beers_timezone: string | null;
       guild_name: string | null;
+      ai_access_role_id: string | null;
     } | undefined;
 
     if (!row) {
@@ -177,6 +208,7 @@ export class GuildSettingsService {
         beersChannelId: null,
         beersTimezone: null,
         guildName: null,
+        aiAccessRoleId: null,
       };
     }
 
@@ -186,6 +218,7 @@ export class GuildSettingsService {
       beersChannelId: row.beers_channel_id,
       beersTimezone: row.beers_timezone,
       guildName: row.guild_name,
+      aiAccessRoleId: row.ai_access_role_id,
     };
   }
 
