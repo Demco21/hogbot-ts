@@ -22,6 +22,7 @@ const SCHEMA = `
     beers_channel_id TEXT,
     beers_timezone TEXT DEFAULT 'America/New_York',
     guild_name TEXT,
+    ai_access_role_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -200,9 +201,24 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_voice_time_aggregates_guild_weekly ON voice_time_aggregates(guild_id, weekly_seconds DESC);
 `;
 
+/**
+ * Adds columns introduced after a table's initial CREATE TABLE IF NOT EXISTS, for
+ * existing databases created before the column existed. CREATE TABLE IF NOT EXISTS is a
+ * no-op once the table already exists, so new columns need an explicit ALTER TABLE here -
+ * guarded by a PRAGMA table_info check since SQLite has no ADD COLUMN IF NOT EXISTS.
+ */
+function addColumnIfMissing(table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (columns.some((col) => col.name === column)) return;
+
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  logger.info(`Migrated: added column ${table}.${column}`);
+}
+
 export async function initializeDatabase(): Promise<void> {
   try {
     db.exec(SCHEMA);
+    addColumnIfMissing('guild_settings', 'ai_access_role_id', 'TEXT');
 
     const tables = (
       db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all() as { name: string }[]

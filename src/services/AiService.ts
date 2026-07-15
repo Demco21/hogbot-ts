@@ -67,11 +67,29 @@ export class AiService {
   }
 
   /**
-   * Sends the prompt to the AI and records the request for rate limiting.
-   * Assumes checkLimits() has already been called and passed.
+   * Sends the prompt (and any attached images) to the AI and records the request for
+   * rate limiting. Assumes checkLimits() has already been called and passed.
    */
-  async ask(userId: string, guildId: string, prompt: string): Promise<AiAskResult> {
+  async ask(
+    userId: string,
+    guildId: string,
+    prompt: string,
+    imageUrls: string[] = []
+  ): Promise<AiAskResult> {
     try {
+      // Images first, then the text - matches Anthropic's documented vision request shape.
+      // Sourced by URL directly (Discord CDN attachment links are public) rather than
+      // downloaded and re-uploaded as base64.
+      const content: Anthropic.MessageParam['content'] = [
+        ...imageUrls.map(
+          (url): Anthropic.ImageBlockParam => ({
+            type: 'image',
+            source: { type: 'url', url },
+          })
+        ),
+        { type: 'text', text: prompt },
+      ];
+
       const response = await this.client.messages.create({
         model: AI_CONFIG.MODEL,
         max_tokens: AI_CONFIG.MAX_RESPONSE_TOKENS,
@@ -86,7 +104,7 @@ export class AiService {
             allowed_callers: ['direct'],
           },
         ],
-        messages: [{ role: 'user', content: prompt }],
+        messages: [{ role: 'user', content }],
       });
 
       this.recordRequest(userId, guildId);

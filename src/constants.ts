@@ -146,6 +146,11 @@ export const AI_CONFIG = {
   // (lets Claude answer questions about current events/info past its training cutoff)
   WEB_SEARCH_MAX_USES: 3,
 
+  // Maximum number of images attached to a single HogAI request (own attachments plus
+  // any pulled from the reply chain). Haiku 4.5 supports vision but each image adds
+  // meaningfully to cost/latency, so this is kept small.
+  MAX_IMAGES_PER_REQUEST: 4,
+
   // How much replied-to context (potentially spanning several messages up the reply
   // chain - see MAX_REPLY_CHAIN_DEPTH) to splice in when HogAI is @mentioned on a reply.
   // Generous enough to fit a typical full HogAI answer (a common case - replying to the
@@ -163,6 +168,10 @@ export const AI_CONFIG = {
   // Fallback prompt used when a user @mentions HogAI on a reply with no question text
   // of their own (e.g. just "@HogBot" with nothing else typed).
   DEFAULT_MENTION_PROMPT: 'Please explain or summarize the referenced message.',
+
+  // Fallback prompt used when a user @mentions HogAI with attached image(s) and no
+  // reply/question text of their own (e.g. "@HogBot" plus a pasted screenshot).
+  DEFAULT_IMAGE_PROMPT: 'Please describe or analyze the attached image(s).',
 
   // System prompt sent on every request. Static and never built from user input.
   SYSTEM_PROMPT: `You are HogAI, a helpful assistant built into the Discord bot "Hogbot" for a private, 18+ Discord server. Mature language and adult topics are fine here — you do not need to sanitize answers for a general audience.
