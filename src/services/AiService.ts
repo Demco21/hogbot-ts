@@ -69,12 +69,19 @@ export class AiService {
   /**
    * Sends the prompt (and any attached images) to the AI and records the request for
    * rate limiting. Assumes checkLimits() has already been called and passed.
+   *
+   * When fetchRecentChannelMessages is provided, Claude is also given a client-side tool
+   * (AI_CONFIG.CHECK_RECENT_MESSAGES_TOOL_NAME) it can call if it decides the prompt
+   * depends on context it wasn't given - e.g. a follow-up sent as a plain new message
+   * rather than a reply. The callback is only invoked if Claude actually calls the tool,
+   * so a normal, self-contained question never pays the extra Discord/API round trip.
    */
   async ask(
     userId: string,
     guildId: string,
     prompt: string,
-    imageUrls: string[] = []
+    imageUrls: string[] = [],
+    fetchRecentChannelMessages?: () => Promise<string>
   ): Promise<AiAskResult> {
     try {
       // Images first, then the text - matches Anthropic's documented vision request shape.
@@ -90,22 +97,76 @@ export class AiService {
         { type: 'text', text: prompt },
       ];
 
-      const response = await this.client.messages.create({
+      const tools: Anthropic.ToolUnion[] = [
+        {
+          type: 'web_search_20260209',
+          name: 'web_search',
+          max_uses: AI_CONFIG.WEB_SEARCH_MAX_USES,
+          // Required for models (e.g. Haiku) that don't support programmatic tool
+          // calling - restricts the tool to being called directly by the model.
+          allowed_callers: ['direct'],
+        },
+      ];
+
+      if (fetchRecentChannelMessages) {
+        tools.push({
+          name: AI_CONFIG.CHECK_RECENT_MESSAGES_TOOL_NAME,
+          description:
+            "Fetches the most recent messages in this Discord channel, so you can check for context you weren't given directly - e.g. the user is following up on an earlier exchange with a new message instead of a reply. Call this BEFORE asking the user a clarifying question about who or what they mean (e.g. an unresolved 'him'/'her'/'it'/'that'), rather than asking them to repeat themselves - the answer is very often already sitting in the channel above. Only call it once per request.",
+          input_schema: { type: 'object', properties: {} },
+        });
+      }
+
+      const messages: Anthropic.MessageParam[] = [{ role: 'user', content }];
+
+      let response = await this.client.messages.create({
         model: AI_CONFIG.MODEL,
         max_tokens: AI_CONFIG.MAX_RESPONSE_TOKENS,
         system: AI_CONFIG.SYSTEM_PROMPT,
-        tools: [
-          {
-            type: 'web_search_20260209',
-            name: 'web_search',
-            max_uses: AI_CONFIG.WEB_SEARCH_MAX_USES,
-            // Required for models (e.g. Haiku) that don't support programmatic tool
-            // calling - restricts the tool to being called directly by the model.
-            allowed_callers: ['direct'],
-          },
-        ],
-        messages: [{ role: 'user', content }],
+        tools,
+        messages,
       });
+
+      // Client-side tool loop, capped to a single round trip: web_search is executed
+      // server-side by Anthropic and never surfaces here as a top-level stop, so the only
+      // thing that can trigger this is check_recent_channel_messages. One round trip is
+      // enough for Claude to get the extra context and produce a final answer with it.
+      const historyToolBlock =
+        fetchRecentChannelMessages && response.stop_reason === 'tool_use'
+          ? response.content.find(
+              (block): block is Anthropic.ToolUseBlock =>
+                block.type === 'tool_use' && block.name === AI_CONFIG.CHECK_RECENT_MESSAGES_TOOL_NAME
+            )
+          : undefined;
+
+      logger.info(
+        `[HogAI debug] stop_reason=${response.stop_reason} toolAvailable=${Boolean(fetchRecentChannelMessages)} historyToolCalled=${Boolean(historyToolBlock)}`
+      );
+
+      if (historyToolBlock && fetchRecentChannelMessages) {
+        const historyText = await fetchRecentChannelMessages();
+        logger.info(`[HogAI debug] fetched recent channel history, length=${historyText.length}`);
+
+        messages.push({ role: 'assistant', content: response.content });
+        messages.push({
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: historyToolBlock.id,
+              content: historyText,
+            },
+          ],
+        });
+
+        response = await this.client.messages.create({
+          model: AI_CONFIG.MODEL,
+          max_tokens: AI_CONFIG.MAX_RESPONSE_TOKENS,
+          system: AI_CONFIG.SYSTEM_PROMPT,
+          tools,
+          messages,
+        });
+      }
 
       this.recordRequest(userId, guildId);
 

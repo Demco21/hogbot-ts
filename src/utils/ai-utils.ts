@@ -144,6 +144,40 @@ function buildQuotedChainSection(quotedChain: QuotedMessage[]): string {
 }
 
 /**
+ * Renders a batch of recent channel messages into a labeled block (oldest to newest) for
+ * the check_recent_channel_messages tool result, within AI_CONFIG.CHANNEL_HISTORY_MAX_LENGTH.
+ * Takes messages in oldest-to-newest order but, like buildQuotedChainSection, allocates
+ * budget newest-first: the messages right before the ambiguous follow-up are the most
+ * likely to hold the missing context, so if the window doesn't fit, it's the older
+ * messages that get dropped or truncated - not the most recent, relevant ones.
+ */
+export function buildRecentHistorySection(messages: Message[]): string {
+  const header = 'Recent channel messages (oldest to newest):';
+  let remaining = AI_CONFIG.CHANNEL_HISTORY_MAX_LENGTH - header.length;
+
+  const includedLines: string[] = [];
+  for (let i = messages.length - 1; i >= 0 && remaining > 0; i--) {
+    const message = messages[i]!;
+
+    const content = extractQuotableText(message);
+    if (!content) continue;
+
+    const prefix = `\n${message.author.username}: "`;
+    const suffix = '"';
+    const available = remaining - prefix.length - suffix.length;
+    if (available <= 0) break;
+
+    const truncatedContent = truncate(content, available);
+    includedLines.unshift(`${prefix}${truncatedContent}${suffix}`);
+    remaining -= prefix.length + truncatedContent.length + suffix.length;
+  }
+
+  if (includedLines.length === 0) return 'No usable recent channel messages were found.';
+
+  return `${header}${includedLines.join('')}`;
+}
+
+/**
  * Disclaimer jokes shown in the HogAI answer embed footer. One is picked at random
  * per answer so regular users see some variety instead of the same line every time.
  */

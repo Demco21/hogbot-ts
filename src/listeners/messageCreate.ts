@@ -9,6 +9,7 @@ import {
   extractImageUrls,
   collectImageUrls,
   buildContextualPrompt,
+  buildRecentHistorySection,
   buildHogAiAnswerEmbed,
   type QuotedMessage,
 } from '../utils/ai-utils.js';
@@ -24,18 +25,34 @@ import {
 export class MessageCreateListener extends Listener {
   public override async run(message: Message) {
     try {
+      logger.info(`[HogAI debug] messageCreate received, id=${message.id} author=${message.author.id}`);
+
       // Ignore bots (including ourselves) to avoid loops.
-      if (message.author.bot) return;
+      if (message.author.bot) {
+        logger.info('[HogAI debug] exit: author is a bot');
+        return;
+      }
 
       // Guild-scoped feature only, consistent with the rest of the bot.
       // inGuild() (rather than a plain message.guild check) narrows message.channel's
       // type so guild-only members like sendTyping() are usable below.
-      if (!message.inGuild()) return;
+      if (!message.inGuild()) {
+        logger.info('[HogAI debug] exit: message not inGuild()');
+        return;
+      }
 
       const botUser = this.container.client.user;
-      if (!botUser || !message.mentions.has(botUser)) return;
+      logger.info(
+        `[HogAI debug] botUser=${botUser?.id} mentionsHasBotUser=${botUser ? message.mentions.has(botUser) : 'n/a'}`
+      );
+      if (!botUser || !message.mentions.has(botUser)) {
+        logger.info('[HogAI debug] exit: message does not mention botUser');
+        return;
+      }
 
-      if (!(await this.hasAiAccess(message))) {
+      const hasAccess = await this.hasAiAccess(message);
+      logger.info(`[HogAI debug] hasAiAccess=${hasAccess}`);
+      if (!hasAccess) {
         await message.reply({
           content: '❌ You don\'t have access to HogAI. Ask an admin to grant you the configured access role.',
         });
@@ -53,6 +70,9 @@ export class MessageCreateListener extends Listener {
       const imageUrls = collectImageUrls(message, quotedChain, AI_CONFIG.MAX_IMAGES_PER_REQUEST);
 
       const question = this.resolveQuestion(strippedQuestion, quotedChain, imageUrls.length > 0);
+      logger.info(
+        `[HogAI debug] strippedQuestion="${strippedQuestion}" quotedChainLen=${quotedChain.length} imageUrls=${imageUrls.length} resolvedQuestion=${question === null ? 'null' : `"${question}"`}`
+      );
       if (question === null) {
         // Bare mention with nothing to reply to, nothing typed, and no images - nothing to answer.
         return;
@@ -61,6 +81,7 @@ export class MessageCreateListener extends Listener {
       const prompt = buildContextualPrompt(question, quotedChain);
 
       const limitCheck = this.container.aiService.checkLimits(userId, guildId, prompt);
+      logger.info(`[HogAI debug] limitCheck.allowed=${limitCheck.allowed}`);
       if (!limitCheck.allowed) {
         // Plain messages have no ephemeral/private concept - this reply is necessarily
         // visible in the channel, unlike the slash command's ephemeral limit responses.
@@ -68,9 +89,20 @@ export class MessageCreateListener extends Listener {
         return;
       }
 
-      await message.channel.sendTyping();
+      // Best-effort UX nicety - a transient Discord API failure here (e.g. a raw 500)
+      // shouldn't abort the whole mention handler and deny the user their actual answer.
+      await message.channel.sendTyping().catch((error) => {
+        logger.debug(
+          `Could not send typing indicator for HogAI mention trigger ` +
+            `[status=${error?.status} method=${error?.method} url=${error?.url}]:`,
+          error
+        );
+      });
 
-      const result = await this.container.aiService.ask(userId, guildId, prompt, imageUrls);
+      const result = await this.container.aiService.ask(userId, guildId, prompt, imageUrls, () =>
+        this.fetchRecentChannelHistory(message)
+      );
+      logger.info(`[HogAI debug] aiService.ask result.ok=${result.ok}`);
 
       if (!result.ok) {
         await message.reply({ content: result.message });
@@ -80,6 +112,7 @@ export class MessageCreateListener extends Listener {
       const embed = buildHogAiAnswerEmbed(result.text);
 
       await message.reply({ embeds: [embed] });
+      logger.info('[HogAI debug] reply with embed sent successfully');
     } catch (error) {
       logger.error('Error handling messageCreate (HogAI mention trigger):', error);
       // Don't throw - this is a listener, errors should not crash the bot
@@ -154,6 +187,30 @@ export class MessageCreateListener extends Listener {
     }
 
     return chain.reverse();
+  }
+
+  /**
+   * Fetches the channel messages immediately preceding the trigger message and renders
+   * them into a labeled block, for the check_recent_channel_messages tool result. Only
+   * invoked when Claude actually calls that tool (see AiService.ask()) - this is the
+   * "scan the last few messages" fallback for context that a bare reply chain wouldn't
+   * catch, e.g. a follow-up sent as a new message instead of a reply. Best-effort: a
+   * fetch failure is surfaced to Claude as text rather than failing the whole request,
+   * since Claude can just answer without the extra context in that case.
+   */
+  private async fetchRecentChannelHistory(message: Message<true>): Promise<string> {
+    try {
+      const recentMessages = await message.channel.messages.fetch({
+        limit: AI_CONFIG.CHANNEL_HISTORY_LOOKBACK_COUNT,
+        before: message.id,
+      });
+
+      // fetch() returns newest-first; buildRecentHistorySection expects oldest-first.
+      return buildRecentHistorySection(Array.from(recentMessages.values()).reverse());
+    } catch (error) {
+      logger.debug('Could not fetch recent channel history for HogAI context tool:', error);
+      return 'Could not retrieve recent channel history due to an error.';
+    }
   }
 
   /**
