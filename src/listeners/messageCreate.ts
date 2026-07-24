@@ -9,6 +9,7 @@ import {
   extractImageUrls,
   collectImageUrls,
   buildContextualPrompt,
+  buildRecentHistorySection,
   buildHogAiAnswerEmbed,
   type QuotedMessage,
 } from '../utils/ai-utils.js';
@@ -98,7 +99,9 @@ export class MessageCreateListener extends Listener {
         );
       });
 
-      const result = await this.container.aiService.ask(userId, guildId, prompt, imageUrls);
+      const result = await this.container.aiService.ask(userId, guildId, prompt, imageUrls, () =>
+        this.fetchRecentChannelHistory(message)
+      );
       logger.info(`[HogAI debug] aiService.ask result.ok=${result.ok}`);
 
       if (!result.ok) {
@@ -184,6 +187,30 @@ export class MessageCreateListener extends Listener {
     }
 
     return chain.reverse();
+  }
+
+  /**
+   * Fetches the channel messages immediately preceding the trigger message and renders
+   * them into a labeled block, for the check_recent_channel_messages tool result. Only
+   * invoked when Claude actually calls that tool (see AiService.ask()) - this is the
+   * "scan the last few messages" fallback for context that a bare reply chain wouldn't
+   * catch, e.g. a follow-up sent as a new message instead of a reply. Best-effort: a
+   * fetch failure is surfaced to Claude as text rather than failing the whole request,
+   * since Claude can just answer without the extra context in that case.
+   */
+  private async fetchRecentChannelHistory(message: Message<true>): Promise<string> {
+    try {
+      const recentMessages = await message.channel.messages.fetch({
+        limit: AI_CONFIG.CHANNEL_HISTORY_LOOKBACK_COUNT,
+        before: message.id,
+      });
+
+      // fetch() returns newest-first; buildRecentHistorySection expects oldest-first.
+      return buildRecentHistorySection(Array.from(recentMessages.values()).reverse());
+    } catch (error) {
+      logger.debug('Could not fetch recent channel history for HogAI context tool:', error);
+      return 'Could not retrieve recent channel history due to an error.';
+    }
   }
 
   /**

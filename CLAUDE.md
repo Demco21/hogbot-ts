@@ -96,18 +96,22 @@ The bot requires a `.env` file with the following variables:
 # Discord Configuration
 DISCORD_TOKEN=your_bot_token_here
 GUILD_ID=your_guild_id           # optional: locks commands to one guild
-CASINO_CHANNEL_ID=your_channel_id  # optional: fallback if not configured per-guild
 
 # Database Configuration
 DATABASE_FILE=./hogbot.db        # optional: defaults to ./hogbot.db
 
 # Environment
 NODE_ENV=development
+
+# AI Configuration
+ANTHROPIC_API_KEY=your_anthropic_api_key_here  # required: used by the HogAI @mention feature
 ```
 
-Use `.env.example` as a template.
+Use `.env.example` as a template. `CASINO_CHANNEL_ID` is accepted for backward compatibility but is deprecated — casino channel is now configured per-guild (see below).
 
-Per-guild settings (richest member role, casino channel, beers channel) are configured via the `/config` command and stored in the `guild_settings` table — not in `.env`.
+Per-guild settings (richest member role, casino channel, beers channel + timezone, HogAI access role) are configured via the `/config` command and stored in the `guild_settings` table — not in `.env`.
+
+**Discord Developer Portal requirement:** the `MessageContent` privileged gateway intent must be enabled for the bot (Bot tab), in addition to being declared in `src/index.ts`. Without it, HogAI cannot read message content for the @mention trigger or quoted reply-chain context.
 
 ## Architecture Overview
 
@@ -125,13 +129,16 @@ Per-guild settings (richest member role, casino channel, beers channel) are conf
 - **LeaderboardService**: Rankings, richest member role management. Tracks current richest per-guild in memory; only makes Discord API calls when it changes.
 - **StatsService**: Per-game statistics, wrapped stats, streak tracking, high scores
 - **DeckService**: Shared card deck management (used by Blackjack, Ride the Bus)
-- **GuildSettingsService**: Per-guild configuration (richest member role, casino channel, beers channel)
+- **GuildSettingsService**: Per-guild configuration (richest member role, casino channel, beers channel + timezone, HogAI access role)
 - **GameStateService**: Crash recovery for complex multi-round games
+- **BlackjackService**, **RideTheBusService**, **SlotsService**, **RouletteService**: Per-game logic, each constructed with `WalletService`, `StatsService`, and `GameStateService` (SlotsService and RouletteService also track a progressive jackpot / house edge respectively — see each service for specifics)
+- **VoiceTimeService**: Tracks active voice sessions and aggregates voice time per user/guild; recovers stale sessions on bot restart (`cleanupStaleSessions()`, called from `index.ts`)
+- **AiService**: Backs the HogAI `@mention` feature. Stateless per-request prompt/response wrapper around the Anthropic API — rate limiting (cooldown + daily cap) and prompt-length checks live here (`checkLimits()`), the actual request in `ask()`. `ask()` runs a Claude `web_search` tool (server-executed) and a custom `check_recent_channel_messages` tool (client-executed, resolved via a callback the caller supplies) that Claude can invoke when a prompt seems to depend on context it wasn't given — see `src/listeners/messageCreate.ts` and `src/utils/ai-utils.ts` for how the Discord side (reply-chain walking, recent-message fetch, embed building) is assembled.
 - Services accessed via `this.container.walletService` in commands
 
 **Commands (`src/commands/`)**
 - Sapphire command pattern using `@ApplyOptions` decorator
-- Guild-specific commands using `registerGuildCommands`
+- `registerApplicationCommands()` registers globally in production, or to `Config.discord.guildId` (if set) in development — for instant command updates while testing. See the `NODE_ENV === 'production' ? {} : Config.discord.guildId ? { guildIds: [...] } : {}` conditional in any existing command (e.g. `my-wallet.ts`) as the reference pattern.
 - Preconditions for channel restrictions (e.g., `CasinoChannelOnly`)
 - All casino commands should use the `CasinoChannelOnly` precondition
 - File names use kebab-case (e.g., `ride-the-bus.ts`, `my-wallet.ts`)
@@ -139,6 +146,7 @@ Per-guild settings (richest member role, casino channel, beers channel) are conf
 **Utilities (`src/utils/`)**
 - **utils.ts**: Generic formatting utilities (`formatCoins`, `formatDuration`)
 - **game-utils.ts**: Shared game UI utilities (`handleGameTimeoutUI`)
+- **ai-utils.ts**: HogAI prompt/embed helpers (reply-chain walking, recent-channel-history formatting, answer embed building)
 
 **Tasks (`src/tasks/`)**
 - **beers-scheduler.ts**: Scheduled background jobs
@@ -152,16 +160,19 @@ Per-guild settings (richest member role, casino channel, beers channel) are conf
 ### Database Schema
 
 **Core Tables:**
-- `guild_settings`: Per-guild configuration (richest member role, casino/beers channel, timezone)
+- `guild_settings`: Per-guild configuration (richest member role, casino/beers channel, beers timezone, HogAI access role)
 - `users`: User wallets with composite PK `(user_id, guild_id)`, balance, high water mark
 - `transactions`: Immutable transaction log (game_source, update_type, amount, balance_after)
 - `game_stats`: Per-game win/loss/streak statistics
 - `progressive_jackpot`: Per-guild slots jackpot pool
 - `loan_rate_limits`: Enforces loan frequency limits per user
+- `ai_rate_limits`: Enforces HogAI cooldown + daily request cap per user
 - `game_sessions`: Active game state for crash recovery in complex games
 - `game_crash_history`: Audit log of crashed/refunded games
 - `voice_sessions`: Active voice channel sessions (for voice time tracking)
 - `voice_time_history` / `voice_time_aggregates`: Voice time tracking
+
+**Schema migrations:** `src/lib/database.ts` runs `CREATE TABLE IF NOT EXISTS` for the full schema on every startup (a no-op for existing tables), then calls `addColumnIfMissing()` for any columns added after a table's initial creation (checked via `PRAGMA table_info`, applied via `ALTER TABLE`). When adding a column to an existing table, add both the column to the inline `CREATE TABLE` (for fresh databases) and an `addColumnIfMissing()` call (for existing ones).
 
 **No database functions or views** — all logic lives in TypeScript application code.
 
@@ -198,6 +209,7 @@ container.blackjackService = new BlackjackService(
 ```typescript
 import { Command } from '@sapphire/framework';
 import { ApplyOptions } from '@sapphire/decorators';
+import { MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
 
 @ApplyOptions<Command.Options>({
@@ -215,7 +227,13 @@ export class MyCommand extends Command {
           .addStringOption((option) =>
             option.setName('param').setDescription('Parameter description').setRequired(true)
           ),
-      { guildIds: [Config.discord.guildId] } // Guild-specific
+      // Global in production; scoped to Config.discord.guildId in development (if set)
+      // for instant command updates while testing
+      process.env.NODE_ENV === 'production'
+        ? {}
+        : Config.discord.guildId
+          ? { guildIds: [Config.discord.guildId] }
+          : {}
     );
   }
 
@@ -227,7 +245,7 @@ export class MyCommand extends Command {
       await interaction.reply({ content: 'Response' });
     } catch (error) {
       this.container.logger.error('Error in command:', error);
-      await interaction.reply({ content: 'Error occurred', ephemeral: true });
+      await interaction.reply({ content: 'Error occurred', flags: MessageFlags.Ephemeral });
     }
   }
 }
@@ -349,17 +367,24 @@ const result = doUpdate() as number;
 
 - `src/index.ts`: Bot entry point, client initialization, service wiring
 - `src/config.ts`: Environment variables with Zod validation
-- `src/constants.ts`: Game enums (GameSource, UpdateType), casino config
-- `src/lib/database.ts`: SQLite database instance and schema
+- `src/constants.ts`: Game enums (GameSource, UpdateType), casino config, `AI_CONFIG` (HogAI model/limits/system prompt)
+- `src/lib/database.ts`: SQLite database instance, schema, and migration helper (`addColumnIfMissing`)
 - `src/lib/types.ts`: TypeScript type definitions
+- `src/lib/logger.ts` / `src/lib/safe-logger.ts`: Sapphire/Winston logger setup; `safe-logger` is the logger used outside piece classes (services, utils) where `this.container.logger` isn't available
+- `src/lib/cleanup.ts`: Scheduled cleanup of crashed/stale game sessions
 - `src/utils/utils.ts`: Formatting utilities (formatCoins, formatDuration)
 - `src/utils/game-utils.ts`: Shared game UI utilities (timeout handling)
+- `src/utils/ai-utils.ts`: HogAI prompt/embed helpers — reply-chain walking, recent-channel-history formatting, quoted-context budgeting, answer embed building
 - `src/services/WalletService.ts`: Balance operations (requires LeaderboardService via constructor)
 - `src/services/LeaderboardService.ts`: Rankings and richest member role
 - `src/services/StatsService.ts`: Game statistics tracking
 - `src/services/GuildSettingsService.ts`: Per-guild configuration
 - `src/services/GameStateService.ts`: Active game session / crash recovery
 - `src/services/DeckService.ts`: Shared card deck management
+- `src/services/BlackjackService.ts`, `RideTheBusService.ts`, `SlotsService.ts`, `RouletteService.ts`: Per-game logic
+- `src/services/VoiceTimeService.ts`: Voice channel time tracking
+- `src/services/AiService.ts`: HogAI request handling (rate limits, Anthropic API calls, tool-use loop)
+- `src/listeners/messageCreate.ts`: HogAI `@mention` trigger — access control, reply-chain/image collection, prompt assembly
 
 ## Testing During Development
 
@@ -396,7 +421,7 @@ const result = doUpdate() as number;
 | **Commands** | kebab-case | Named after the slash command | `ride-the-bus.ts`, `my-wallet.ts` |
 | **Listeners** | camelCase | Named after Discord.js event | `voiceStateUpdate.ts`, `guildCreate.ts` |
 | **Preconditions** | PascalCase | Descriptive class names | `CasinoChannelOnly.ts` |
-| **Utilities** | kebab-case | Pure functions, not classes | `game-utils.ts`, `utils.ts` |
+| **Utilities** | kebab-case | Pure functions, not classes | `game-utils.ts`, `utils.ts`, `ai-utils.ts` |
 | **Tasks/Jobs** | kebab-case | Background scripts | `beers-scheduler.ts` |
 | **Config** | lowercase | Simple config files | `config.ts`, `constants.ts` |
 
