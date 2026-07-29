@@ -144,22 +144,47 @@ function buildQuotedChainSection(quotedChain: QuotedMessage[]): string {
 }
 
 /**
+ * Result of rendering the recent-history tool result: the labeled text block plus any
+ * image URLs pulled from that window, capped at maxImages. Both get sent back to Claude
+ * as the check_recent_channel_messages tool_result - the images as real vision content
+ * blocks alongside the text, not just described in prose - so Claude can actually look at
+ * an image that was posted as its own message a few messages up, not just reply-chained.
+ */
+export interface RecentHistorySection {
+  text: string;
+  imageUrls: string[];
+}
+
+/**
  * Renders a batch of recent channel messages into a labeled block (oldest to newest) for
- * the check_recent_channel_messages tool result, within AI_CONFIG.CHANNEL_HISTORY_MAX_LENGTH.
- * Takes messages in oldest-to-newest order but, like buildQuotedChainSection, allocates
- * budget newest-first: the messages right before the ambiguous follow-up are the most
- * likely to hold the missing context, so if the window doesn't fit, it's the older
+ * the check_recent_channel_messages tool result, within AI_CONFIG.CHANNEL_HISTORY_MAX_LENGTH,
+ * and collects up to maxImages image URLs from that same window. Takes messages in
+ * oldest-to-newest order but, like buildQuotedChainSection, allocates both the text budget
+ * and the image budget newest-first: the messages right before the ambiguous follow-up are
+ * the most likely to hold the missing context, so if either budget runs out, it's the older
  * messages that get dropped or truncated - not the most recent, relevant ones.
  */
-export function buildRecentHistorySection(messages: Message[]): string {
+export function buildRecentHistorySection(messages: Message[], maxImages: number): RecentHistorySection {
   const header = 'Recent channel messages (oldest to newest):';
   let remaining = AI_CONFIG.CHANNEL_HISTORY_MAX_LENGTH - header.length;
 
   const includedLines: string[] = [];
+  const imageUrls: string[] = [];
+
   for (let i = messages.length - 1; i >= 0 && remaining > 0; i--) {
     const message = messages[i]!;
 
-    const content = extractQuotableText(message);
+    const messageImageUrls = extractImageUrls(message, maxImages);
+    const includedImageCount = Math.min(messageImageUrls.length, maxImages - imageUrls.length);
+    if (includedImageCount > 0) {
+      imageUrls.push(...messageImageUrls.slice(0, includedImageCount));
+    }
+
+    const content = describeMessageForHistory(
+      extractQuotableText(message),
+      messageImageUrls.length,
+      includedImageCount
+    );
     if (!content) continue;
 
     const prefix = `\n${message.author.username}: "`;
@@ -172,9 +197,34 @@ export function buildRecentHistorySection(messages: Message[]): string {
     remaining -= prefix.length + truncatedContent.length + suffix.length;
   }
 
-  if (includedLines.length === 0) return 'No usable recent channel messages were found.';
+  const text =
+    includedLines.length === 0 ? 'No usable recent channel messages were found.' : `${header}${includedLines.join('')}`;
 
-  return `${header}${includedLines.join('')}`;
+  return { text, imageUrls };
+}
+
+/**
+ * Builds the text used for a single message in the recent-history block, noting when a
+ * message carries image(s) so it doesn't silently vanish - a caption-less image message
+ * has no plain text or embed text (extractQuotableText returns '') and would otherwise be
+ * dropped entirely, leaving Claude with no way to know an image was ever posted. Wording
+ * depends on whether the image(s) actually made it into this request's image budget: when
+ * they did, they're attached as real vision content alongside this text; when the budget
+ * was already spent on other images in the window, they weren't sent and Claude should say
+ * so rather than pretend to have seen something it didn't.
+ */
+function describeMessageForHistory(text: string, imageCount: number, includedImageCount: number): string {
+  if (imageCount === 0) return text;
+
+  const plural = imageCount === 1 ? '' : 's';
+  const imageNote =
+    includedImageCount === imageCount
+      ? `[posted ${imageCount} image${plural} - attached below]`
+      : includedImageCount > 0
+        ? `[posted ${imageCount} images - only ${includedImageCount} attached below, the rest were not sent]`
+        : `[posted ${imageCount} image${plural} - not attached, too many other images in this window]`;
+
+  return text ? `${text} ${imageNote}` : imageNote;
 }
 
 /**

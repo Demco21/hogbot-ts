@@ -12,6 +12,7 @@ import {
   buildRecentHistorySection,
   buildHogAiAnswerEmbed,
   type QuotedMessage,
+  type RecentHistorySection,
 } from '../utils/ai-utils.js';
 
 /**
@@ -198,7 +199,7 @@ export class MessageCreateListener extends Listener {
    * fetch failure is surfaced to Claude as text rather than failing the whole request,
    * since Claude can just answer without the extra context in that case.
    */
-  private async fetchRecentChannelHistory(message: Message<true>): Promise<string> {
+  private async fetchRecentChannelHistory(message: Message<true>): Promise<RecentHistorySection> {
     try {
       const recentMessages = await message.channel.messages.fetch({
         limit: AI_CONFIG.CHANNEL_HISTORY_LOOKBACK_COUNT,
@@ -206,10 +207,13 @@ export class MessageCreateListener extends Listener {
       });
 
       // fetch() returns newest-first; buildRecentHistorySection expects oldest-first.
-      return buildRecentHistorySection(Array.from(recentMessages.values()).reverse());
+      return buildRecentHistorySection(
+        Array.from(recentMessages.values()).reverse(),
+        AI_CONFIG.MAX_IMAGES_PER_REQUEST
+      );
     } catch (error) {
       logger.debug('Could not fetch recent channel history for HogAI context tool:', error);
-      return 'Could not retrieve recent channel history due to an error.';
+      return { text: 'Could not retrieve recent channel history due to an error.', imageUrls: [] };
     }
   }
 

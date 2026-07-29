@@ -18,6 +18,16 @@ export type AiLimitCheckResult =
 export type AiAskResult = { ok: true; text: string } | { ok: false; message: string };
 
 /**
+ * Text plus any image URLs pulled from the recent-history window fetched for the
+ * check_recent_channel_messages tool. Mirrors ai-utils' RecentHistorySection without
+ * importing it directly - AiService has no other dependency on discord.js types.
+ */
+export interface RecentChannelHistory {
+  text: string;
+  imageUrls: string[];
+}
+
+/**
  * AiService — simple, stateless prompt/response AI feature backed by the Anthropic API.
  * Each request is independent; no conversation history is stored or sent.
  */
@@ -81,7 +91,7 @@ export class AiService {
     guildId: string,
     prompt: string,
     imageUrls: string[] = [],
-    fetchRecentChannelMessages?: () => Promise<string>
+    fetchRecentChannelMessages?: () => Promise<RecentChannelHistory>
   ): Promise<AiAskResult> {
     try {
       // Images first, then the text - matches Anthropic's documented vision request shape.
@@ -144,8 +154,23 @@ export class AiService {
       );
 
       if (historyToolBlock && fetchRecentChannelMessages) {
-        const historyText = await fetchRecentChannelMessages();
-        logger.info(`[HogAI debug] fetched recent channel history, length=${historyText.length}`);
+        const history = await fetchRecentChannelMessages();
+        logger.info(
+          `[HogAI debug] fetched recent channel history, length=${history.text.length} images=${history.imageUrls.length}`
+        );
+
+        // Images first, then text, matching the same shape as the initial user turn -
+        // Claude can genuinely look at an image that was posted as its own message a few
+        // messages back, not just read a text description saying one exists.
+        const toolResultContent: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [
+          ...history.imageUrls.map(
+            (url): Anthropic.ImageBlockParam => ({
+              type: 'image',
+              source: { type: 'url', url },
+            })
+          ),
+          { type: 'text', text: history.text },
+        ];
 
         messages.push({ role: 'assistant', content: response.content });
         messages.push({
@@ -154,7 +179,7 @@ export class AiService {
             {
               type: 'tool_result',
               tool_use_id: historyToolBlock.id,
-              content: historyText,
+              content: toolResultContent,
             },
           ],
         });
