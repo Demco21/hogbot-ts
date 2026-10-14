@@ -1,4 +1,5 @@
 import { container } from '@sapphire/framework';
+import { getDayOfWeekInTimezone } from '../utils/date-utils.js';
 
 // Track last known day for each guild to detect changes
 const guildLastDay: Map<string, number> = new Map();
@@ -32,7 +33,7 @@ async function checkAndUpdateBeersChannels(): Promise<void> {
   for (const { guildId, channelId, timezone } of guildsWithBeers) {
     try {
       // Get current day in guild's timezone using service helper
-      const currentDay = getCurrentDayInTimezone(timezone);
+      const currentDay = getDayOfWeekInTimezone(timezone);
       const lastDay = guildLastDay.get(guildId);
 
       // Day changed or first run
@@ -58,23 +59,6 @@ async function checkAndUpdateBeersChannels(): Promise<void> {
       await handleBeersChannelError(guildId, channelId, error);
     }
   }
-}
-
-/**
- * Get the current day of the week in a specific timezone
- * Returns 0 (Sunday) through 6 (Saturday)
- *
- * Helper function for tracking day changes in scheduler
- */
-function getCurrentDayInTimezone(timezone: string): number {
-  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const now = new Date();
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    weekday: 'long',
-  });
-  const dayName = formatter.format(now);
-  return DAYS.indexOf(dayName);
 }
 
 /**

@@ -6,6 +6,7 @@ import { safeLogger as logger } from '../lib/safe-logger.js';
 /**
  * VoiceStateUpdate listener - Fires when a user's voice state changes
  * Handles: joining voice, leaving voice, switching channels, mute/deafen (ignored)
+ * Feeds both voice time tracking and daily voice streaks (joins and switches count as activity)
  *
  * AFK Channel Exclusion:
  * - Uses guild.afkChannelId to automatically filter out Discord's built-in AFK channel
@@ -30,6 +31,7 @@ export class VoiceStateUpdateListener extends Listener {
       if (!wasInVoice && isInVoice) {
         logger.debug(`User ${userId} joined voice channel ${newState.channelId} in guild ${guildId}`);
         await this.container.voiceTimeService.trackVoiceJoin(userId, guildId, newState.channelId!);
+        await this.recordStreakActivity(newState);
         return;
       }
 
@@ -47,6 +49,8 @@ export class VoiceStateUpdateListener extends Listener {
         );
         // trackVoiceJoin handles channel switches internally
         await this.container.voiceTimeService.trackVoiceJoin(userId, guildId, newState.channelId!);
+        // Usually a no-op (already credited on join), but covers e.g. moving out of the AFK channel
+        await this.recordStreakActivity(newState);
         return;
       }
 
@@ -55,6 +59,19 @@ export class VoiceStateUpdateListener extends Listener {
     } catch (error) {
       logger.error('Error handling voiceStateUpdate:', error);
       // Don't throw - this is a listener, errors should not crash the bot
+    }
+  }
+
+  /**
+   * Credit today's voice streak. Isolated so a streak failure never affects voice time tracking.
+   */
+  private async recordStreakActivity(state: VoiceState): Promise<void> {
+    if (!state.member) return;
+
+    try {
+      await this.container.streakService.recordActivity(state.member);
+    } catch (error) {
+      logger.error(`Error recording voice streak activity for ${state.id} in guild ${state.guild.id}:`, error);
     }
   }
 }

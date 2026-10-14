@@ -50,6 +50,21 @@ export class ReadyListener extends Listener {
       }
 
       logger.info(`Database:        ${registeredCount}/${client.guilds.cache.size} guilds registered`);
+
+      // Voice streaks: apply missed rollovers, credit members already in voice, and
+      // reconcile streak roles with the database (repairs drift from while we were offline)
+      const streakGuilds = await this.container.guildSettingsService.getGuildsWithStreaksEnabled();
+      for (const { guildId } of streakGuilds) {
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) continue;
+
+        try {
+          await this.container.streakService.initializeGuild(guild);
+        } catch (error) {
+          logger.error(`Failed to initialize voice streaks for ${guild.name} (${guildId}):`, error);
+        }
+      }
+      logger.info(`Voice streaks:   ${streakGuilds.length} guild(s) enabled`);
       logger.info('═══════════════════════════════════════════════════════════');
       logger.info('✅ HogBot is online and ready to serve!');
       logger.info('═══════════════════════════════════════════════════════════');

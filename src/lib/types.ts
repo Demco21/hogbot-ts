@@ -200,3 +200,15 @@ export interface VoiceTimeLeaderboardEntry {
   seconds: number;
   rank: number;
 }
+
+/**
+ * A member's voice streak as seen right now. currentStreak is already corrected for a
+ * missed day even if the daily rollover hasn't run yet.
+ */
+export interface VoiceStreakInfo {
+  userId: string;
+  currentStreak: number;
+  longestStreak: number;
+  lastActiveDate: string | null;
+  activeToday: boolean;
+}
