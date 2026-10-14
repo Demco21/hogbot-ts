@@ -109,7 +109,7 @@ ANTHROPIC_API_KEY=your_anthropic_api_key_here  # required: used by the HogAI @me
 
 Use `.env.example` as a template. `CASINO_CHANNEL_ID` is accepted for backward compatibility but is deprecated — casino channel is now configured per-guild (see below).
 
-Per-guild settings (richest member role, casino channel, beers channel + timezone, HogAI access role) are configured via the `/config` command and stored in the `guild_settings` table — not in `.env`.
+Per-guild settings (richest member role, casino channel, beers channel, server timezone, voice streaks toggle, HogAI access role) are configured via the `/config` command and stored in the `guild_settings` table — not in `.env`.
 
 **Discord Developer Portal requirement:** the `MessageContent` privileged gateway intent must be enabled for the bot (Bot tab), in addition to being declared in `src/index.ts`. Without it, HogAI cannot read message content for the @mention trigger or quoted reply-chain context.
 
@@ -129,9 +129,10 @@ Per-guild settings (richest member role, casino channel, beers channel + timezon
 - **LeaderboardService**: Rankings, richest member role management. Tracks current richest per-guild in memory; only makes Discord API calls when it changes.
 - **StatsService**: Per-game statistics, wrapped stats, streak tracking, high scores
 - **DeckService**: Shared card deck management (used by Blackjack, Ride the Bus)
-- **GuildSettingsService**: Per-guild configuration (richest member role, casino channel, beers channel + timezone, HogAI access role)
+- **GuildSettingsService**: Per-guild configuration (richest member role, casino channel, beers channel, server timezone, voice streaks toggle, HogAI access role). The timezone (`guild_settings.timezone`) is shared server-wide: it defines midnight for both the beers channel rename and the voice streak day.
 - **GameStateService**: Crash recovery for complex multi-round games
 - **BlackjackService**, **RideTheBusService**, **SlotsService**, **RouletteService**: Per-game logic, each constructed with `WalletService`, `StatsService`, and `GameStateService` (SlotsService and RouletteService also track a progressive jackpot / house edge respectively — see each service for specifics)
+- **StreakService**: Daily voice streaks (join any non-AFK voice channel once a day; miss a day → reset to 0), shown as auto-managed `🔥 N Day Streak` roles. The DB (`voice_streaks`) is the source of truth and roles are a projection of it. Role work is serialized per guild and idempotent (`syncMemberRoles` matches a member's roles to their DB streak at run time). Only roles recorded in `streak_roles` are ever touched, and a role is deleted once no member's streak equals its length. Daily rollover runs from `tasks/streak-scheduler.ts`. Startup reconcile runs from the `ready` listener.
 - **VoiceTimeService**: Tracks active voice sessions and aggregates voice time per user/guild; recovers stale sessions on bot restart (`cleanupStaleSessions()`, called from `index.ts`)
 - **AiService**: Backs the HogAI `@mention` feature. Stateless per-request prompt/response wrapper around the Anthropic API — rate limiting (cooldown + daily cap) and prompt-length checks live here (`checkLimits()`), the actual request in `ask()`. `ask()` runs a Claude `web_search` tool (server-executed) and a custom `check_recent_channel_messages` tool (client-executed, resolved via a callback the caller supplies) that Claude can invoke when a prompt seems to depend on context it wasn't given — see `src/listeners/messageCreate.ts` and `src/utils/ai-utils.ts` for how the Discord side (reply-chain walking, recent-message fetch, embed building) is assembled.
 - Services accessed via `this.container.walletService` in commands
@@ -147,9 +148,11 @@ Per-guild settings (richest member role, casino channel, beers channel + timezon
 - **utils.ts**: Generic formatting utilities (`formatCoins`, `formatDuration`)
 - **game-utils.ts**: Shared game UI utilities (`handleGameTimeoutUI`)
 - **ai-utils.ts**: HogAI prompt/embed helpers (reply-chain walking, recent-channel-history formatting, answer embed building)
+- **date-utils.ts**: Timezone-aware calendar helpers (`getDateInTimezone` → `'YYYY-MM-DD'`, `shiftDate`, `getDayOfWeekInTimezone`, DST-safe `getNextMidnight`)
 
 **Tasks (`src/tasks/`)**
-- **beers-scheduler.ts**: Scheduled background jobs
+- **beers-scheduler.ts**: Renames the beers voice channel at midnight (server timezone)
+- **streak-scheduler.ts**: Runs each guild's daily voice streak rollover after midnight (server timezone)
 
 **Database Layer (`src/lib/database.ts`)**
 - SQLite via `better-sqlite3` — synchronous, embedded, no separate process
@@ -160,7 +163,7 @@ Per-guild settings (richest member role, casino channel, beers channel + timezon
 ### Database Schema
 
 **Core Tables:**
-- `guild_settings`: Per-guild configuration (richest member role, casino/beers channel, beers timezone, HogAI access role)
+- `guild_settings`: Per-guild configuration (richest member role, casino/beers channel, shared `timezone`, voice streaks toggle + last rollover date, HogAI access role)
 - `users`: User wallets with composite PK `(user_id, guild_id)`, balance, high water mark
 - `transactions`: Immutable transaction log (game_source, update_type, amount, balance_after)
 - `game_stats`: Per-game win/loss/streak statistics
@@ -171,8 +174,10 @@ Per-guild settings (richest member role, casino channel, beers channel + timezon
 - `game_crash_history`: Audit log of crashed/refunded games
 - `voice_sessions`: Active voice channel sessions (for voice time tracking)
 - `voice_time_history` / `voice_time_aggregates`: Voice time tracking
+- `voice_streaks`: Per-member daily voice streak (current, longest, last credited date in the guild's timezone)
+- `streak_roles`: Streak roles HogBot created, keyed by `(guild_id, streak_days)`
 
-**Schema migrations:** `src/lib/database.ts` runs `CREATE TABLE IF NOT EXISTS` for the full schema on every startup (a no-op for existing tables), then calls `addColumnIfMissing()` for any columns added after a table's initial creation (checked via `PRAGMA table_info`, applied via `ALTER TABLE`). When adding a column to an existing table, add both the column to the inline `CREATE TABLE` (for fresh databases) and an `addColumnIfMissing()` call (for existing ones).
+**Schema migrations:** `src/lib/database.ts` runs `CREATE TABLE IF NOT EXISTS` for the full schema on every startup (a no-op for existing tables), then calls `addColumnIfMissing()` for any columns added after a table's initial creation (checked via `PRAGMA table_info`, applied via `ALTER TABLE`). When adding a column to an existing table, add both the column to the inline `CREATE TABLE` (for fresh databases) and an `addColumnIfMissing()` call (for existing ones). To rename a column, use `renameColumnIfExists()` (e.g. `beers_timezone` → `timezone`).
 
 **No database functions or views** — all logic lives in TypeScript application code.
 
@@ -383,6 +388,9 @@ const result = doUpdate() as number;
 - `src/services/DeckService.ts`: Shared card deck management
 - `src/services/BlackjackService.ts`, `RideTheBusService.ts`, `SlotsService.ts`, `RouletteService.ts`: Per-game logic
 - `src/services/VoiceTimeService.ts`: Voice channel time tracking
+- `src/services/StreakService.ts`: Daily voice streaks + streak role management
+- `src/tasks/streak-scheduler.ts`: Daily voice streak rollover
+- `src/utils/date-utils.ts`: Timezone-aware date helpers (shared by beers + streaks)
 - `src/services/AiService.ts`: HogAI request handling (rate limits, Anthropic API calls, tool-use loop)
 - `src/listeners/messageCreate.ts`: HogAI `@mention` trigger — access control, reply-chain/image collection, prompt assembly
 

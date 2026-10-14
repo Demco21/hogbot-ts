@@ -20,9 +20,11 @@ const SCHEMA = `
     richest_member_role_id TEXT,
     casino_channel_id TEXT,
     beers_channel_id TEXT,
-    beers_timezone TEXT DEFAULT 'America/New_York',
+    timezone TEXT DEFAULT 'America/New_York',
     guild_name TEXT,
     ai_access_role_id TEXT,
+    streaks_enabled INTEGER NOT NULL DEFAULT 0,
+    streak_last_rollover_date TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -199,6 +201,28 @@ const SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS idx_voice_time_aggregates_guild_total ON voice_time_aggregates(guild_id, total_seconds DESC);
   CREATE INDEX IF NOT EXISTS idx_voice_time_aggregates_guild_weekly ON voice_time_aggregates(guild_id, weekly_seconds DESC);
+
+  -- Daily voice streaks. Dates are 'YYYY-MM-DD' in the guild's timezone (guild_settings.timezone).
+  CREATE TABLE IF NOT EXISTS voice_streaks (
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
+    current_streak INTEGER NOT NULL DEFAULT 0 CHECK (current_streak >= 0),
+    longest_streak INTEGER NOT NULL DEFAULT 0 CHECK (longest_streak >= 0),
+    last_active_date TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, guild_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_voice_streaks_guild_streak ON voice_streaks(guild_id, current_streak);
+
+  -- Streak roles created and owned by HogBot (one per distinct streak length in use).
+  -- Only roles listed here are ever modified or deleted by the streak feature.
+  CREATE TABLE IF NOT EXISTS streak_roles (
+    guild_id TEXT NOT NULL REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
+    streak_days INTEGER NOT NULL CHECK (streak_days > 0),
+    role_id TEXT NOT NULL UNIQUE,
+    PRIMARY KEY (guild_id, streak_days)
+  );
 `;
 
 /**
@@ -215,10 +239,32 @@ function addColumnIfMissing(table: string, column: string, definition: string): 
   logger.info(`Migrated: added column ${table}.${column}`);
 }
 
+/**
+ * Renames a column on an existing database (no-op on fresh databases, which are created
+ * with the new name). Uses ALTER TABLE ... RENAME COLUMN (SQLite 3.25+), which preserves
+ * the column's data.
+ */
+function renameColumnIfExists(table: string, from: string, to: string): void {
+  const columns = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((col) => col.name);
+  if (!columns.includes(from)) return;
+
+  if (columns.includes(to)) {
+    logger.warn(`Skipped rename of ${table}.${from} -> ${to}: both columns exist`);
+    return;
+  }
+
+  db.exec(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`);
+  logger.info(`Migrated: renamed column ${table}.${from} -> ${to}`);
+}
+
 export async function initializeDatabase(): Promise<void> {
   try {
     db.exec(SCHEMA);
+    // Timezone is shared by beers + voice streaks, so it is no longer named after beers
+    renameColumnIfExists('guild_settings', 'beers_timezone', 'timezone');
     addColumnIfMissing('guild_settings', 'ai_access_role_id', 'TEXT');
+    addColumnIfMissing('guild_settings', 'streaks_enabled', 'INTEGER NOT NULL DEFAULT 0');
+    addColumnIfMissing('guild_settings', 'streak_last_rollover_date', 'TEXT');
 
     const tables = (
       db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all() as { name: string }[]

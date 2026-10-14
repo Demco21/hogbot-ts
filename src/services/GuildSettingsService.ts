@@ -1,6 +1,7 @@
 import { db } from '../lib/database.js';
 import { safeLogger as logger } from '../lib/safe-logger.js';
 import { ChannelType, PermissionFlagsBits, Guild } from 'discord.js';
+import { DAYS_OF_WEEK, getDayOfWeekInTimezone } from '../utils/date-utils.js';
 
 export interface BeersRenameResult {
   success: boolean;
@@ -8,7 +9,13 @@ export interface BeersRenameResult {
   error?: string;
 }
 
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+export const DEFAULT_TIMEZONE = 'America/New_York';
+
+export interface StreakGuildSettings {
+  guildId: string;
+  timezone: string;
+  lastRolloverDate: string | null;
+}
 
 /**
  * GuildSettingsService manages per-guild configuration with in-memory caching.
@@ -146,37 +153,84 @@ export class GuildSettingsService {
     logger.info(`Updated beers channel for guild ${guildId}: ${channelId ?? 'disabled'}`);
   }
 
-  async getBeersTimezone(guildId: string): Promise<string> {
+  /**
+   * Server-wide timezone - defines "midnight" for the beers channel rename and the
+   * voice streak day boundary.
+   */
+  async getTimezone(guildId: string): Promise<string> {
     const row = db.prepare(
-      'SELECT beers_timezone FROM guild_settings WHERE guild_id = ?'
-    ).get(guildId) as { beers_timezone: string } | undefined;
+      'SELECT timezone FROM guild_settings WHERE guild_id = ?'
+    ).get(guildId) as { timezone: string | null } | undefined;
 
-    return row?.beers_timezone || 'America/New_York';
+    return row?.timezone || DEFAULT_TIMEZONE;
   }
 
-  async setBeersTimezone(guildId: string, timezone: string): Promise<void> {
+  async setTimezone(guildId: string, timezone: string): Promise<void> {
     db.prepare(
-      `INSERT INTO guild_settings (guild_id, beers_timezone)
+      `INSERT INTO guild_settings (guild_id, timezone)
        VALUES (?, ?)
        ON CONFLICT (guild_id) DO UPDATE
-       SET beers_timezone = excluded.beers_timezone,
+       SET timezone = excluded.timezone,
            updated_at = datetime('now')`
     ).run(guildId, timezone);
 
-    logger.info(`Updated beers timezone for guild ${guildId}: ${timezone}`);
+    logger.info(`Updated timezone for guild ${guildId}: ${timezone}`);
+  }
+
+  async setStreaksEnabled(guildId: string, enabled: boolean): Promise<void> {
+    db.prepare(
+      `INSERT INTO guild_settings (guild_id, streaks_enabled)
+       VALUES (?, ?)
+       ON CONFLICT (guild_id) DO UPDATE
+       SET streaks_enabled = excluded.streaks_enabled,
+           updated_at = datetime('now')`
+    ).run(guildId, enabled ? 1 : 0);
+
+    logger.info(`Voice streaks ${enabled ? 'enabled' : 'disabled'} for guild ${guildId}`);
+  }
+
+  /**
+   * Streak settings for a guild, or null if voice streaks are disabled there.
+   */
+  async getStreakSettings(guildId: string): Promise<StreakGuildSettings | null> {
+    const row = db.prepare(
+      `SELECT guild_id, timezone, streak_last_rollover_date
+       FROM guild_settings
+       WHERE guild_id = ? AND streaks_enabled = 1`
+    ).get(guildId) as StreakSettingsRow | undefined;
+
+    return row ? toStreakGuildSettings(row) : null;
+  }
+
+  async getGuildsWithStreaksEnabled(): Promise<StreakGuildSettings[]> {
+    const rows = db.prepare(
+      `SELECT guild_id, timezone, streak_last_rollover_date
+       FROM guild_settings
+       WHERE streaks_enabled = 1`
+    ).all() as StreakSettingsRow[];
+
+    return rows.map(toStreakGuildSettings);
+  }
+
+  async setStreakLastRolloverDate(guildId: string, date: string): Promise<void> {
+    db.prepare(
+      `UPDATE guild_settings
+       SET streak_last_rollover_date = ?, updated_at = datetime('now')
+       WHERE guild_id = ?`
+    ).run(date, guildId);
   }
 
   async getGuildsWithBeersChannelEnabled(): Promise<Array<{ guildId: string; channelId: string; timezone: string }>> {
     const rows = db.prepare(
-      `SELECT guild_id, beers_channel_id, beers_timezone
+      `SELECT guild_id, beers_channel_id, timezone
        FROM guild_settings
        WHERE beers_channel_id IS NOT NULL`
-    ).all() as { guild_id: string; beers_channel_id: string; beers_timezone: string }[];
+    ).all() as { guild_id: string; beers_channel_id: string; timezone: string | null }[];
 
     return rows.map((row) => ({
       guildId: row.guild_id,
       channelId: row.beers_channel_id,
-      timezone: row.beers_timezone || 'America/New_York',
+      timezone: row.timezone || DEFAULT_TIMEZONE,
     }));
   }
 
@@ -184,21 +238,24 @@ export class GuildSettingsService {
     richestMemberRoleId: string | null;
     casinoChannelId: string | null;
     beersChannelId: string | null;
-    beersTimezone: string | null;
+    timezone: string;
     guildName: string | null;
     aiAccessRoleId: string | null;
+    streaksEnabled: boolean;
   }> {
     const row = db.prepare(
-      `SELECT richest_member_role_id, casino_channel_id, beers_channel_id, beers_timezone, guild_name, ai_access_role_id
+      `SELECT richest_member_role_id, casino_channel_id, beers_channel_id, timezone, guild_name, ai_access_role_id,
+              streaks_enabled
        FROM guild_settings
        WHERE guild_id = ?`
     ).get(guildId) as {
       richest_member_role_id: string | null;
       casino_channel_id: string | null;
       beers_channel_id: string | null;
-      beers_timezone: string | null;
+      timezone: string | null;
       guild_name: string | null;
       ai_access_role_id: string | null;
+      streaks_enabled: number;
     } | undefined;
 
     if (!row) {
@@ -206,9 +263,10 @@ export class GuildSettingsService {
         richestMemberRoleId: null,
         casinoChannelId: null,
         beersChannelId: null,
-        beersTimezone: null,
+        timezone: DEFAULT_TIMEZONE,
         guildName: null,
         aiAccessRoleId: null,
+        streaksEnabled: false,
       };
     }
 
@@ -216,9 +274,10 @@ export class GuildSettingsService {
       richestMemberRoleId: row.richest_member_role_id,
       casinoChannelId: row.casino_channel_id,
       beersChannelId: row.beers_channel_id,
-      beersTimezone: row.beers_timezone,
+      timezone: row.timezone || DEFAULT_TIMEZONE,
       guildName: row.guild_name,
       aiAccessRoleId: row.ai_access_role_id,
+      streaksEnabled: row.streaks_enabled === 1,
     };
   }
 
@@ -236,8 +295,8 @@ export class GuildSettingsService {
         return { success: false, error: 'Bot lacks MANAGE_CHANNELS permission' };
       }
 
-      const dayIndex = this.getCurrentDayInTimezone(timezone);
-      const newName = `🍺 ${DAYS[dayIndex]} Beers`;
+      const dayIndex = getDayOfWeekInTimezone(timezone);
+      const newName = `🍺 ${DAYS_OF_WEEK[dayIndex]} Beers`;
 
       if (channel.name !== newName) {
         await channel.setName(newName);
@@ -251,11 +310,18 @@ export class GuildSettingsService {
       return { success: false, error: errorMessage };
     }
   }
+}
 
-  private getCurrentDayInTimezone(timezone: string): number {
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' });
-    const dayName = formatter.format(now);
-    return DAYS.indexOf(dayName);
-  }
+interface StreakSettingsRow {
+  guild_id: string;
+  timezone: string | null;
+  streak_last_rollover_date: string | null;
+}
+
+function toStreakGuildSettings(row: StreakSettingsRow): StreakGuildSettings {
+  return {
+    guildId: row.guild_id,
+    timezone: row.timezone || DEFAULT_TIMEZONE,
+    lastRolloverDate: row.streak_last_rollover_date,
+  };
 }

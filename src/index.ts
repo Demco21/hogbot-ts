@@ -5,6 +5,7 @@ import { SapphireWinstonLogger, winstonLogger } from './lib/logger.js';
 import { initializeDatabase, closeDatabase } from './lib/database.js';
 import { startCleanupJobs } from './lib/cleanup.js';
 import { startBeersScheduler } from './tasks/beers-scheduler.js';
+import { startStreakScheduler } from './tasks/streak-scheduler.js';
 import { WalletService } from './services/WalletService.js';
 import { LeaderboardService } from './services/LeaderboardService.js';
 import { StatsService } from './services/StatsService.js';
@@ -16,6 +17,7 @@ import { GameStateService } from './services/GameStateService.js';
 import { GuildSettingsService } from './services/GuildSettingsService.js';
 import { VoiceTimeService } from './services/VoiceTimeService.js';
 import { AiService } from './services/AiService.js';
+import { StreakService } from './services/StreakService.js';
 
 // Configure Sapphire to not overwrite commands unless they changed
 // This prevents unnecessary command recreation and propagation delays
@@ -35,6 +37,7 @@ declare module '@sapphire/pieces' {
     gameStateService: GameStateService;
     voiceTimeService: VoiceTimeService;
     aiService: AiService;
+    streakService: StreakService;
   }
 }
 
@@ -77,6 +80,7 @@ class HogBotClient extends SapphireClient {
     container.gameStateService = new GameStateService();
     container.voiceTimeService = new VoiceTimeService();
     container.aiService = new AiService();
+    container.streakService = new StreakService(container.guildSettingsService);
     container.blackjackService = new BlackjackService(
       container.walletService,
       container.statsService,
@@ -110,6 +114,9 @@ class HogBotClient extends SapphireClient {
 
     // Start beers channel scheduler
     startBeersScheduler();
+
+    // Start voice streak daily rollover scheduler (per-guild startup reconcile runs in the ready listener)
+    startStreakScheduler();
 
     // Cleanup stale voice sessions (bot restart recovery)
     await container.voiceTimeService.cleanupStaleSessions();

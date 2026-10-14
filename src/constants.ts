@@ -300,3 +300,26 @@ export const EMBED_COLORS = {
   // Game-specific defaults
   ROULETTE: 0x228b22, // Forest green - roulette table
 } as const;
+
+/**
+ * Voice streak configuration
+ */
+export const STREAK_CONFIG = {
+  // Streak roles are named from the streak length, e.g. "🔥 3 Day Streak"
+  ROLE_NAME_PREFIX: '🔥 ',
+  ROLE_NAME_SUFFIX: ' Day Streak',
+  ROLE_COLOR: 0xff6b00, // Flame orange
+
+  // Discord caps a guild at 250 roles; stop creating streak roles before that so
+  // admins always have headroom. Streaks still accrue in the DB past this point.
+  MAX_GUILD_ROLES: 245,
+
+  // Scheduler interval for detecting the daily rollover
+  ROLLOVER_CHECK_INTERVAL_MS: 60 * 1000,
+
+  LEADERBOARD_SIZE: 10,
+} as const;
+
+export function formatStreakRoleName(streakDays: number): string {
+  return `${STREAK_CONFIG.ROLE_NAME_PREFIX}${streakDays}${STREAK_CONFIG.ROLE_NAME_SUFFIX}`;
+}

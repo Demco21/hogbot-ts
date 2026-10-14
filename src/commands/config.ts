@@ -10,8 +10,27 @@ import {
   ChannelType,
   ComponentType,
   MessageFlags,
+  PermissionFlagsBits,
+  type ButtonInteraction,
 } from 'discord.js';
 import { EMBED_COLORS } from '../constants.js';
+import { DEFAULT_TIMEZONE } from '../services/GuildSettingsService.js';
+
+/**
+ * Timezones offered by the shared timezone picker, keyed by button custom ID.
+ * Shared by the beers channel rename and the voice streak day boundary.
+ */
+const TIMEZONE_OPTIONS = [
+  { customId: 'tz_eastern', label: 'Eastern (ET)', timezone: 'America/New_York' },
+  { customId: 'tz_central', label: 'Central (CT)', timezone: 'America/Chicago' },
+  { customId: 'tz_mountain', label: 'Mountain (MT)', timezone: 'America/Denver' },
+  { customId: 'tz_pacific', label: 'Pacific (PT)', timezone: 'America/Los_Angeles' },
+  { customId: 'tz_utc', label: 'UTC', timezone: 'UTC' },
+] as const;
+
+function getTimezoneLabel(timezone: string): string {
+  return TIMEZONE_OPTIONS.find((option) => option.timezone === timezone)?.label ?? timezone;
+}
 
 @ApplyOptions<Command.Options>({
   name: 'config',
@@ -58,7 +77,20 @@ export class ConfigCommand extends Command {
           .setCustomId('config_ai_access_role')
           .setLabel('Set HogAI Access Role')
           .setStyle(ButtonStyle.Primary)
-          .setEmoji('🤖'),
+          .setEmoji('🤖')
+      );
+
+      const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId('config_timezone')
+          .setLabel('Set Timezone')
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji('🕛'),
+        new ButtonBuilder()
+          .setCustomId('config_voice_streaks')
+          .setLabel('Voice Streaks')
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji('🔥'),
         new ButtonBuilder()
           .setCustomId('config_reset')
           .setLabel('Reset All')
@@ -68,7 +100,7 @@ export class ConfigCommand extends Command {
 
       const response = await interaction.reply({
         embeds: [embed],
-        components: [row],
+        components: [row, row2],
         flags: MessageFlags.Ephemeral,
       });
 
@@ -96,6 +128,10 @@ export class ConfigCommand extends Command {
             await this.handleBeersChannelConfig(buttonInteraction, guildId, guild);
           } else if (buttonInteraction.customId === 'config_ai_access_role') {
             await this.handleAiAccessRoleConfig(buttonInteraction, guildId, guild);
+          } else if (buttonInteraction.customId === 'config_timezone') {
+            await this.handleTimezoneConfig(buttonInteraction, guildId);
+          } else if (buttonInteraction.customId === 'config_voice_streaks') {
+            await this.handleVoiceStreaksConfig(buttonInteraction, guildId);
           } else if (buttonInteraction.customId === 'config_reset') {
             await this.handleResetConfig(buttonInteraction, guildId, guild);
           }
@@ -133,9 +169,10 @@ export class ConfigCommand extends Command {
       richestMemberRoleId: string | null;
       casinoChannelId: string | null;
       beersChannelId: string | null;
-      beersTimezone: string | null;
+      timezone: string;
       guildName: string | null;
       aiAccessRoleId: string | null;
+      streaksEnabled: boolean;
     },
     guild: Command.ChatInputCommandInteraction['guild']
   ): Promise<EmbedBuilder> {
@@ -151,8 +188,6 @@ export class ConfigCommand extends Command {
     const beersChannelName = settings.beersChannelId
       ? `<#${settings.beersChannelId}>`
       : '*Not set (feature disabled)*';
-
-    const beersTimezone = settings.beersTimezone || 'America/New_York';
 
     const aiAccessRoleName = settings.aiAccessRoleId
       ? guild?.roles.cache.get(settings.aiAccessRoleId)?.name || '*Role not found*'
@@ -175,14 +210,24 @@ export class ConfigCommand extends Command {
         },
         {
           name: '🍺 Beers Channel',
-          value: settings.beersChannelId
-            ? `${beersChannelName}\n*Timezone: ${beersTimezone}*`
-            : beersChannelName,
+          value: beersChannelName,
           inline: false,
         },
         {
           name: '🤖 HogAI Access Role',
           value: aiAccessRoleName,
+          inline: false,
+        },
+        {
+          name: '🕛 Server Timezone',
+          value: `${getTimezoneLabel(settings.timezone)}\n*Midnight for the beers channel and voice streaks*`,
+          inline: false,
+        },
+        {
+          name: '🔥 Voice Streaks',
+          value: settings.streaksEnabled
+            ? 'Enabled - daily voice channel streaks shown as roles'
+            : '*Disabled*',
           inline: false,
         }
       )
@@ -498,84 +543,27 @@ export class ConfigCommand extends Command {
       try {
         if (i.customId === 'select_beers_channel' && i.isChannelSelectMenu()) {
           const selectedChannelId = i.values[0];
+          const timezone = await this.container.guildSettingsService.getTimezone(guildId);
+          await this.container.guildSettingsService.setBeersChannelId(guildId, selectedChannelId);
 
-          // Now show timezone selector
-          const timezoneOptions = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('tz_eastern').setLabel('Eastern (ET)').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('tz_central').setLabel('Central (CT)').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('tz_mountain').setLabel('Mountain (MT)').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('tz_pacific').setLabel('Pacific (PT)').setStyle(ButtonStyle.Primary)
+          // Immediately rename the channel to today's name for instant feedback
+          const renameResult = await this.container.guildSettingsService.renameBeersChannel(
+            guild!,
+            selectedChannelId,
+            timezone
           );
 
-          const timezoneOptions2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('tz_utc').setLabel('UTC').setStyle(ButtonStyle.Secondary)
-          );
-
+          const tzName = getTimezoneLabel(timezone);
           await i.update({
-            content: `✅ Beers channel set to <#${selectedChannelId}>\n\n**Now select your timezone:**\nThis determines when the channel name changes each day (at midnight).`,
-            components: [timezoneOptions, timezoneOptions2],
-          });
-
-          // Create new collector for timezone selection
-          const tzCollector = response.createMessageComponentCollector({
-            time: 60000,
-          });
-
-          tzCollector.on('collect', async (tzInteraction: any) => {
-            if (tzInteraction.user.id !== interaction.user.id) {
-              await tzInteraction.reply({
-                content: 'Only the command user can interact with this.',
-                flags: MessageFlags.Ephemeral,
-              });
-              return;
-            }
-
-            const timezoneMap: Record<string, string> = {
-              tz_eastern: 'America/New_York',
-              tz_central: 'America/Chicago',
-              tz_mountain: 'America/Denver',
-              tz_pacific: 'America/Los_Angeles',
-              tz_utc: 'UTC',
-            };
-
-            const timezone = timezoneMap[tzInteraction.customId];
-            if (timezone) {
-              await this.container.guildSettingsService.setBeersChannelId(guildId, selectedChannelId);
-              await this.container.guildSettingsService.setBeersTimezone(guildId, timezone);
-
-              // Immediately rename the channel to today's name for instant feedback
-              const renameResult = await this.container.guildSettingsService.renameBeersChannel(
-                guild!,
-                selectedChannelId,
-                timezone
-              );
-
-              const tzName = tzInteraction.component.label;
-              await tzInteraction.update({
-                content:
-                  `✅ Beers channel configured!\n\n` +
-                  `**Channel:** <#${selectedChannelId}>\n` +
-                  `**Timezone:** ${tzName}\n\n` +
-                  (renameResult.success
-                    ? `Channel renamed to: **${renameResult.newName}**\n\n`
-                    : `⚠️ ${renameResult.error}\n\n`) +
-                  `The channel will be automatically renamed each day at midnight ${tzName}.`,
-                components: [],
-              });
-
-              tzCollector.stop();
-            }
-          });
-
-          tzCollector.on('end', (collected: any) => {
-            if (collected.size === 0) {
-              interaction
-                .editReply({
-                  content: 'Timezone selection timed out. Please run /config again to complete setup.',
-                  components: [],
-                })
-                .catch(() => {});
-            }
+            content:
+              `✅ Beers channel configured!\n\n` +
+              `**Channel:** <#${selectedChannelId}>\n` +
+              `**Timezone:** ${tzName} *(server timezone - change it with "Set Timezone")*\n\n` +
+              (renameResult.success
+                ? `Channel renamed to: **${renameResult.newName}**\n\n`
+                : `⚠️ ${renameResult.error}\n\n`) +
+              `The channel will be automatically renamed each day at midnight ${tzName}.`,
+            components: [],
           });
 
           collector.stop();
@@ -602,6 +590,178 @@ export class ConfigCommand extends Command {
     });
   }
 
+  private async handleTimezoneConfig(interaction: ButtonInteraction, guildId: string) {
+    const currentTimezone = await this.container.guildSettingsService.getTimezone(guildId);
+
+    const timezoneRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      TIMEZONE_OPTIONS.map((option) =>
+        new ButtonBuilder()
+          .setCustomId(option.customId)
+          .setLabel(option.label)
+          .setStyle(option.timezone === currentTimezone ? ButtonStyle.Success : ButtonStyle.Primary)
+      )
+    );
+
+    await interaction.reply({
+      content:
+        '**Select Server Timezone**\n\n' +
+        `Current: **${getTimezoneLabel(currentTimezone)}**\n\n` +
+        'This sets when "midnight" is for the beers channel rename and the voice streak day.',
+      components: [timezoneRow],
+      flags: MessageFlags.Ephemeral,
+    });
+
+    // Collect on the reply message itself. A collector from reply()'s InteractionResponse is
+    // bound to the message the clicked button lives on (the main /config panel), so clicks on
+    // this new message would never reach it.
+    const response = await interaction.fetchReply();
+    const collector = response.createMessageComponentCollector({
+      componentType: ComponentType.Button,
+      time: 60000, // 1 minute
+    });
+
+    collector.on('collect', async (i) => {
+      if (i.user.id !== interaction.user.id) {
+        await i.reply({ content: 'Only the command user can interact with this.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      try {
+        const option = TIMEZONE_OPTIONS.find((candidate) => candidate.customId === i.customId);
+        if (!option) return;
+
+        await this.container.guildSettingsService.setTimezone(guildId, option.timezone);
+
+        // Bring the beers channel name in line with the new timezone right away
+        const settings = await this.container.guildSettingsService.getAllSettings(guildId);
+        if (settings.beersChannelId && interaction.guild) {
+          await this.container.guildSettingsService.renameBeersChannel(
+            interaction.guild,
+            settings.beersChannelId,
+            option.timezone
+          );
+        }
+
+        await i.update({
+          content:
+            `✅ Server timezone set to **${option.label}**\n\n` +
+            (settings.streaksEnabled && option.timezone !== currentTimezone
+              ? '⚠️ Voice streaks now roll over at midnight in this timezone. The day of the change, ' +
+                'some members may see their streak count one day early or late.'
+              : 'Daily features now roll over at midnight in this timezone.'),
+          components: [],
+        });
+
+        collector.stop();
+      } catch (error) {
+        this.container.logger.error('Error setting server timezone:', error);
+        await i.reply({ content: 'An error occurred while updating the setting.', flags: MessageFlags.Ephemeral });
+      }
+    });
+
+    collector.on('end', (collected) => {
+      if (collected.size === 0) {
+        interaction.editReply({ content: 'Selection timed out.', components: [] }).catch(() => {});
+      }
+    });
+  }
+
+  private async handleVoiceStreaksConfig(interaction: ButtonInteraction, guildId: string) {
+    const { streaksEnabled } = await this.container.guildSettingsService.getAllSettings(guildId);
+
+    const toggleRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      streaksEnabled
+        ? new ButtonBuilder()
+            .setCustomId('disable_voice_streaks')
+            .setLabel('Disable Voice Streaks')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('❌')
+        : new ButtonBuilder()
+            .setCustomId('enable_voice_streaks')
+            .setLabel('Enable Voice Streaks')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('🔥')
+    );
+
+    await interaction.reply({
+      content:
+        '**Voice Streaks**\n\n' +
+        'Members build a daily streak by joining any voice channel at least once a day ' +
+        '(the AFK channel doesn\'t count). Missing a full day resets it to 0.\n\n' +
+        'Each member\'s streak is shown as a role like **🔥 3 Day Streak**. HogBot creates and deletes these ' +
+        'roles automatically, keeping only one role per streak length currently held.\n\n' +
+        `Status: **${streaksEnabled ? 'Enabled' : 'Disabled'}**`,
+      components: [toggleRow],
+      flags: MessageFlags.Ephemeral,
+    });
+
+    // See handleTimezoneConfig: collect on the reply message, not the InteractionResponse
+    const response = await interaction.fetchReply();
+    const collector = response.createMessageComponentCollector({
+      componentType: ComponentType.Button,
+      time: 60000, // 1 minute
+    });
+
+    collector.on('collect', async (i) => {
+      if (i.user.id !== interaction.user.id) {
+        await i.reply({ content: 'Only the command user can interact with this.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+
+      const guild = interaction.guild;
+      if (!guild) return;
+
+      try {
+        if (i.customId === 'enable_voice_streaks') {
+          if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+            await i.update({
+              content:
+                '❌ I need the **Manage Roles** permission to create and assign streak roles.\n' +
+                'Please grant me this permission and try again.',
+              components: [],
+            });
+            collector.stop();
+            return;
+          }
+
+          // Enabling reconciles roles with Discord, which can take a moment on larger servers
+          await i.deferUpdate();
+          await this.container.streakService.enable(guild);
+
+          await i.editReply({
+            content:
+              '✅ Voice streaks enabled!\n\n' +
+              'Members currently in voice have been credited for today. Everyone else starts their streak ' +
+              'the next time they join a voice channel.',
+            components: [],
+          });
+        } else if (i.customId === 'disable_voice_streaks') {
+          await i.deferUpdate();
+          await this.container.streakService.disable(guild);
+
+          await i.editReply({
+            content:
+              '✅ Voice streaks disabled.\n\n' +
+              'All streak roles have been removed. Streak counts are kept, so streaks still alive today ' +
+              'will come back if you re-enable the feature.',
+            components: [],
+          });
+        }
+
+        collector.stop();
+      } catch (error) {
+        this.container.logger.error('Error toggling voice streaks:', error);
+        await i.followUp({ content: 'An error occurred while updating the setting.', flags: MessageFlags.Ephemeral });
+      }
+    });
+
+    collector.on('end', (collected) => {
+      if (collected.size === 0) {
+        interaction.editReply({ content: 'Selection timed out.', components: [] }).catch(() => {});
+      }
+    });
+  }
+
   private async handleResetConfig(
     interaction: Command.ChatInputCommandInteraction | any,
     guildId: string,
@@ -620,7 +780,9 @@ export class ConfigCommand extends Command {
         '• Remove casino channel restriction (allow everywhere)\n' +
         '• Disable richest member role feature\n' +
         '• Disable beers channel feature\n' +
-        '• Remove HogAI access restriction (allow everyone)\n\n' +
+        '• Remove HogAI access restriction (allow everyone)\n' +
+        '• Disable voice streaks (streak roles are deleted; streak counts are kept)\n' +
+        `• Reset the server timezone to ${getTimezoneLabel(DEFAULT_TIMEZONE)}\n\n` +
         'This action cannot be undone.',
       components: [confirmRow],
       flags: MessageFlags.Ephemeral,
@@ -644,6 +806,8 @@ export class ConfigCommand extends Command {
           await this.container.guildSettingsService.setRichestMemberRoleId(guildId, null);
           await this.container.guildSettingsService.setBeersChannelId(guildId, null);
           await this.container.guildSettingsService.setAiAccessRoleId(guildId, null);
+          await this.container.guildSettingsService.setTimezone(guildId, DEFAULT_TIMEZONE);
+          await this.container.streakService.disable(guild!);
 
           await i.update({
             content: '✅ All settings have been reset to default values.',
