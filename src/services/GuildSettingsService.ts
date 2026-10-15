@@ -154,8 +154,8 @@ export class GuildSettingsService {
   }
 
   /**
-   * Server-wide timezone - defines "midnight" for the beers channel rename and the
-   * voice streak day boundary.
+   * Server-wide timezone - defines midnight for the beers channel rename and the
+   * voice streak day boundary (STREAK_CONFIG.DAY_START_HOUR).
    */
   async getTimezone(guildId: string): Promise<string> {
     const row = db.prepare(

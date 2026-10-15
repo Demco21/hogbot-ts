@@ -3,9 +3,9 @@ import { STREAK_CONFIG } from '../constants.js';
 
 /**
  * Start the voice streak scheduler
- * Checks every minute whether midnight has passed in each guild's timezone and, if so,
- * runs that guild's daily streak rollover (resets missed streaks, credits members still
- * in voice). The rollover itself is idempotent per day, so extra checks are harmless.
+ * Checks every minute whether a new streak day has started (STREAK_CONFIG.DAY_START_HOUR in
+ * each guild's timezone) and, if so, runs that guild's daily streak rollover (resets
+ * missed streaks, credits members still in voice). The rollover itself is idempotent per day, so extra checks are harmless.
  */
 export function startStreakScheduler(): void {
   setInterval(async () => {

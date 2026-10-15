@@ -23,12 +23,21 @@ export type StreakLeaderboardType = 'current' | 'longest';
 const ROLE_UPDATE_REASON = 'HogBot voice streak update';
 
 /**
+ * The streak day it currently is in the given timezone. Days start at
+ * STREAK_CONFIG.DAY_START_HOUR rather than midnight.
+ */
+function getStreakDate(timezone: string): string {
+  return getDateInTimezone(timezone, new Date(), STREAK_CONFIG.DAY_START_HOUR);
+}
+
+/**
  * StreakService tracks daily voice streaks and mirrors them onto Discord roles.
  *
  * Design:
  * - The database (voice_streaks) is the single source of truth. Roles are a projection
  *   of it and are never read back to decide anyone's streak.
- * - A "day" is a calendar date in the guild's timezone. Joining a voice channel credits
+ * - A "day" runs from STREAK_CONFIG.DAY_START_HOUR to the same hour the next morning in
+ *   the guild's timezone, identified by the date it starts on. Joining a voice channel credits
  *   the day; the first credit of a day extends the streak if yesterday was credited,
  *   otherwise restarts it at 1. A daily rollover resets streaks whose last credited day
  *   is older than yesterday.
@@ -64,7 +73,7 @@ export class StreakService {
     const settings = await this.guildSettingsService.getStreakSettings(member.guild.id);
     if (!settings) return;
 
-    const today = getDateInTimezone(settings.timezone);
+    const today = getStreakDate(settings.timezone);
     const newStreak = this.creditActivity(member.guild.id, member.id, today);
     if (newStreak === null) return;
 
@@ -81,10 +90,10 @@ export class StreakService {
     const settings = await this.guildSettingsService.getStreakSettings(guild.id);
     if (!settings) return;
 
-    const today = getDateInTimezone(settings.timezone);
+    const today = getStreakDate(settings.timezone);
     if (settings.lastRolloverDate === today) return;
 
-    // Members sitting in voice across midnight never "join", so credit them for the new day
+    // Members sitting in voice across the day start never "join", so credit them for the new day
     const creditedUserIds = this.creditMembersInVoice(guild, today);
     const resetUserIds = this.resetBrokenStreaks(guild.id, shiftDate(today, -1));
     await this.guildSettingsService.setStreakLastRolloverDate(guild.id, today);
@@ -111,7 +120,7 @@ export class StreakService {
 
     await this.runRolloverIfDue(guild);
     // Covers a restart mid-day: anyone still in voice was most likely there all along
-    this.creditMembersInVoice(guild, getDateInTimezone(settings.timezone));
+    this.creditMembersInVoice(guild, getStreakDate(settings.timezone));
 
     await this.enqueueRoleWork(guild, () => this.reconcile(guild));
   }
@@ -181,12 +190,12 @@ export class StreakService {
       .get(userId, guildId) as VoiceStreakRow | undefined;
     if (!row) return null;
 
-    const today = getDateInTimezone(await this.guildSettingsService.getTimezone(guildId));
+    const today = getStreakDate(await this.guildSettingsService.getTimezone(guildId));
     return this.toStreakInfo(row, today);
   }
 
   async getTopStreaks(guildId: string, type: StreakLeaderboardType, limit: number): Promise<VoiceStreakInfo[]> {
-    const today = getDateInTimezone(await this.guildSettingsService.getTimezone(guildId));
+    const today = getStreakDate(await this.guildSettingsService.getTimezone(guildId));
 
     // 'current' excludes streaks already broken but not yet reset by the rollover
     const rows =

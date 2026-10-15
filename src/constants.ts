@@ -314,6 +314,10 @@ export const STREAK_CONFIG = {
   // admins always have headroom. Streaks still accrue in the DB past this point.
   MAX_GUILD_ROLES: 245,
 
+  // Local hour (server timezone) when a streak day begins. 5 → each day runs 05:00-04:59,
+  // so late-night sessions still count toward the previous day
+  DAY_START_HOUR: 5,
+
   // Scheduler interval for detecting the daily rollover
   ROLLOVER_CHECK_INTERVAL_MS: 60 * 1000,
 

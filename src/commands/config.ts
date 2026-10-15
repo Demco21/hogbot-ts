@@ -13,7 +13,7 @@ import {
   PermissionFlagsBits,
   type ButtonInteraction,
 } from 'discord.js';
-import { EMBED_COLORS } from '../constants.js';
+import { EMBED_COLORS, STREAK_CONFIG } from '../constants.js';
 import { DEFAULT_TIMEZONE } from '../services/GuildSettingsService.js';
 
 /**
@@ -30,6 +30,12 @@ const TIMEZONE_OPTIONS = [
 
 function getTimezoneLabel(timezone: string): string {
   return TIMEZONE_OPTIONS.find((option) => option.timezone === timezone)?.label ?? timezone;
+}
+
+/** The voice streak day start as a 12-hour clock time, e.g. "5:00 AM" */
+function formatDayStartHour(): string {
+  const hour = STREAK_CONFIG.DAY_START_HOUR;
+  return `${hour % 12 || 12}:00 ${hour < 12 ? 'AM' : 'PM'}`;
 }
 
 @ApplyOptions<Command.Options>({
@@ -220,7 +226,7 @@ export class ConfigCommand extends Command {
         },
         {
           name: '🕛 Server Timezone',
-          value: `${getTimezoneLabel(settings.timezone)}\n*Midnight for the beers channel and voice streaks*`,
+          value: `${getTimezoneLabel(settings.timezone)}\n*Beers channel renames at midnight; voice streak days start at ${formatDayStartHour()}*`,
           inline: false,
         },
         {
@@ -606,7 +612,7 @@ export class ConfigCommand extends Command {
       content:
         '**Select Server Timezone**\n\n' +
         `Current: **${getTimezoneLabel(currentTimezone)}**\n\n` +
-        'This sets when "midnight" is for the beers channel rename and the voice streak day.',
+        `This sets when midnight is for the beers channel rename, and when the voice streak day starts (${formatDayStartHour()}).`,
       components: [timezoneRow],
       flags: MessageFlags.Ephemeral,
     });
@@ -646,9 +652,9 @@ export class ConfigCommand extends Command {
           content:
             `✅ Server timezone set to **${option.label}**\n\n` +
             (settings.streaksEnabled && option.timezone !== currentTimezone
-              ? '⚠️ Voice streaks now roll over at midnight in this timezone. The day of the change, ' +
+              ? `⚠️ Voice streaks now roll over at ${formatDayStartHour()} in this timezone. The day of the change, ` +
                 'some members may see their streak count one day early or late.'
-              : 'Daily features now roll over at midnight in this timezone.'),
+              : 'Daily features now roll over in this timezone.'),
           components: [],
         });
 

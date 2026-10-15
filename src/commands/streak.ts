@@ -4,7 +4,7 @@ import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { Config } from '../config.js';
 import { EMBED_COLORS, STREAK_CONFIG } from '../constants.js';
 import type { StreakLeaderboardType } from '../services/StreakService.js';
-import { getNextMidnight } from '../utils/date-utils.js';
+import { getNextDayStart } from '../utils/date-utils.js';
 
 /**
  * Streak command - Show daily voice streaks
@@ -91,7 +91,7 @@ export class StreakCommand extends Command {
     const isSelf = userId === interaction.user.id;
 
     const timezone = await this.container.guildSettingsService.getTimezone(guildId);
-    const resetTimestamp = Math.floor(getNextMidnight(timezone).getTime() / 1000);
+    const resetTimestamp = Math.floor(getNextDayStart(timezone, STREAK_CONFIG.DAY_START_HOUR).getTime() / 1000);
 
     let status: string;
     if (!streak || streak.currentStreak === 0) {
