@@ -129,7 +129,7 @@ Per-guild settings (richest member role, casino channel, beers channel, server t
 - **LeaderboardService**: Rankings, richest member role management. Tracks current richest per-guild in memory; only makes Discord API calls when it changes.
 - **StatsService**: Per-game statistics, wrapped stats, streak tracking, high scores
 - **DeckService**: Shared card deck management (used by Blackjack, Ride the Bus)
-- **GuildSettingsService**: Per-guild configuration (richest member role, casino channel, beers channel, server timezone, voice streaks toggle, HogAI access role). The timezone (`guild_settings.timezone`) is shared server-wide: it defines midnight for both the beers channel rename and the voice streak day.
+- **GuildSettingsService**: Per-guild configuration (richest member role, casino channel, beers channel, server timezone, voice streaks toggle, HogAI access role). The timezone (`guild_settings.timezone`) is shared server-wide: it defines midnight for the beers channel rename and the voice streak day start (`STREAK_CONFIG.DAY_START_HOUR`, 5:00 AM).
 - **GameStateService**: Crash recovery for complex multi-round games
 - **BlackjackService**, **RideTheBusService**, **SlotsService**, **RouletteService**: Per-game logic, each constructed with `WalletService`, `StatsService`, and `GameStateService` (SlotsService and RouletteService also track a progressive jackpot / house edge respectively — see each service for specifics)
 - **StreakService**: Daily voice streaks (join any non-AFK voice channel once a day; miss a day → reset to 0), shown as auto-managed `🔥 N Day Streak` roles. The DB (`voice_streaks`) is the source of truth and roles are a projection of it. Role work is serialized per guild and idempotent (`syncMemberRoles` matches a member's roles to their DB streak at run time). Only roles recorded in `streak_roles` are ever touched, and a role is deleted once no member's streak equals its length. Daily rollover runs from `tasks/streak-scheduler.ts`. Startup reconcile runs from the `ready` listener.
@@ -148,11 +148,11 @@ Per-guild settings (richest member role, casino channel, beers channel, server t
 - **utils.ts**: Generic formatting utilities (`formatCoins`, `formatDuration`)
 - **game-utils.ts**: Shared game UI utilities (`handleGameTimeoutUI`)
 - **ai-utils.ts**: HogAI prompt/embed helpers (reply-chain walking, recent-channel-history formatting, answer embed building)
-- **date-utils.ts**: Timezone-aware calendar helpers (`getDateInTimezone` → `'YYYY-MM-DD'`, `shiftDate`, `getDayOfWeekInTimezone`, DST-safe `getNextMidnight`)
+- **date-utils.ts**: Timezone-aware calendar helpers (`getDateInTimezone` → `'YYYY-MM-DD'`, `shiftDate`, `getDayOfWeekInTimezone`, DST-safe `getNextDayStart`; both date helpers take an optional day-start hour for days that begin after midnight)
 
 **Tasks (`src/tasks/`)**
 - **beers-scheduler.ts**: Renames the beers voice channel at midnight (server timezone)
-- **streak-scheduler.ts**: Runs each guild's daily voice streak rollover after midnight (server timezone)
+- **streak-scheduler.ts**: Runs each guild's daily voice streak rollover at the streak day start (`STREAK_CONFIG.DAY_START_HOUR`, server timezone)
 
 **Database Layer (`src/lib/database.ts`)**
 - SQLite via `better-sqlite3` — synchronous, embedded, no separate process
